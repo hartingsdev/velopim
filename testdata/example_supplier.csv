@@ -1,0 +1,7 @@
+Artikelnr;EAN;Marke;Bezeichnung;Modelljahr;Farbe;Rahmenhoehe;EK;UVP;Bestand;Liefertermin;Bilder;Antrieb
+100-001;4006381333931;Beispielrad;Trekking 5.4 Herren;2027;schwarz matt;52;1.049,50;1.799,00;4;;https://example.test/a.jpg|https://example.test/b.jpg;Kette
+100-002;4006381333932;Beispielrad;Trekking 5.4 Herren;2027;schwarz matt;56;1.049,50;1.799,00;0;15.03.2027;https://example.test/a.jpg;Kette
+100-003;;Beispielrad;Trekking 5.4 Wave;27;silber;48;1.049,50;abc;0;;;Riemen
+;4006381333931;Beispielrad;Ohne Nummer;2027;rot;50;900,00;1.500,00;1;;;
+100-001;4006381333931;Beispielrad;Doppelt;2027;rot;50;900,00;1.500,00;1;;;
+100-004;4006381333931;Beispielrad;Zu wenig Spalten

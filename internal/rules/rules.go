@@ -15,6 +15,7 @@ const (
 	DescriptionChange  ActionType = "description_change"
 	ImagesChange       ActionType = "images_change"
 	Deactivation       ActionType = "deactivation"
+	AttributeChange    ActionType = "attribute_change"
 )
 
 // Outcome is what happens to an action.
