@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "velopim",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "set -a; . ./.env; set +a; exec ./bin/velopim serve"],
+      "port": 8080
+    }
+  ]
+}

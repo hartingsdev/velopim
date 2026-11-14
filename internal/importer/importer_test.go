@@ -3,57 +3,22 @@ package importer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"velopim/internal/connector/csvfile"
+	"velopim/internal/dbtest"
 	"velopim/internal/tasks"
 )
 
-// These tests need PostgreSQL. Set TEST_DATABASE_URL (e.g. to DATABASE_URL
-// from .env); without it they are skipped. Each test gets its own schema.
+// These tests need PostgreSQL, see dbtest.New.
 func testDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	pool := dbtest.New(t)
 	ctx := context.Background()
-	admin, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
-		t.Fatal(err)
-	}
-	sep := "?"
-	if strings.Contains(url, "?") {
-		sep = "&"
-	}
-	pool, err := pgxpool.New(ctx, url+sep+"search_path="+schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
-		admin.Close()
-	})
-
-	migration, err := os.ReadFile("../../db/migrations/00001_core_schema.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	up, _, _ := strings.Cut(string(migration), "-- +goose Down")
-	if _, err := pool.Exec(ctx, up); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO source (id, name, connector_kind, availability_mapping) VALUES ('example', 'Beispiel', 'csvfile', '[
 		  {"name": "in stock", "when": [{"field": "Bestand", "op": "gt", "value": "0"}], "status": "in_stock", "quantity_field": "Bestand"},

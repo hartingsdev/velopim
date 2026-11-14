@@ -35,11 +35,14 @@
 - Tests ohne Datenbank: `go test ./...` (Datenbanktests werden übersprungen).
 - Tests mit Datenbank: `TEST_DATABASE_URL="$DATABASE_URL" go test ./...` (jeder Test legt ein eigenes Schema an und löscht es wieder).
 - Nach Änderungen an `db/queries/` oder `db/migrations/`: `sqlc generate` (sqlc liegt in `~/.local/bin`, ohne C-Compiler gebaut mit `CGO_ENABLED=0 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`).
+- Oberfläche bauen: in `web/` `npm install && npm run build`, danach `go build -o bin/velopim ./cmd/velopim`. Entwicklung: `npm run dev` (leitet `/api` an den Go-Server weiter).
+- Server: `./bin/velopim serve` (braucht `DATABASE_URL`, z. B. `set -a; . ./.env; set +a`). Import: `./bin/velopim import <quelle> <datei>`.
+- Beispielquelle für lokale Tests: `testdata/example_source.sql` in die Datenbank laden, dann `./bin/velopim import example testdata/example_supplier.csv`.
 - Vor jedem Commit: `gofmt -l .` und `go vet ./...` müssen sauber sein.
 
 ## Stand
-Fertig und getestet: Regel-Engine (`rules`), Preiskalkulation (`pricing`), Verfügbarkeit (`availability`), CSV-Konnektor (`connector/csvfile`), Änderungserkennung (`actions`), Shopify-Projektion und Diff (`shopify`), Datenbankschema, Import-Pipeline (`importer`), Task-Entscheidung (`tasks`).
-Noch nicht begonnen: Variantengruppierung und eigener Katalog (Produkt/Variante aus Lieferantenartikeln), Übernahme freigegebener Aktionen in den Katalog, Nutzungsrichtlinie in der Pipeline, Shopify-API-Client, HTTP-API, React-Oberfläche, Import-Befehl im Binary.
+Fertig und getestet: Regel-Engine (`rules`), Preiskalkulation (`pricing`), Verfügbarkeit (`availability`), CSV-Konnektor (`connector/csvfile`), Änderungserkennung (`actions`), Shopify-Projektion und Diff (`shopify`), Datenbankschema, Import-Pipeline (`importer`), Task-Entscheidung (`tasks`), HTTP-API für Tasks und Importläufe (`api`), Import-Befehl im Binary, React-Oberfläche mit Taskliste (Freigeben/Ablehnen), erledigten Aufgaben und Importläufen.
+Noch nicht begonnen: Variantengruppierung und eigener Katalog (Produkt/Variante aus Lieferantenartikeln), Übernahme freigegebener Aktionen in den Katalog, Nutzungsrichtlinie in der Pipeline, Shopify-API-Client, Produktansicht, Pflege von Regeln und Quellen in der Oberfläche, River-Jobs.
 
 ## Geplante Struktur
 ```
@@ -101,6 +104,8 @@ testdata/           Beispiel-Lieferantendaten
 | 16 | Eine neuere offene Aktion ersetzt die ältere für dasselbe Feld (`superseded`) | Tasks stapeln sich nicht bei wiederholten Änderungen |
 | 17 | Datenprobleme eines Imports ergeben einen Sammel-Task, Details in `import_run.summary` | Tausende fehlende EANs dürfen die Taskliste nicht fluten |
 | 18 | Preisänderungen gehen vorerst immer zur Freigabe, keine `auto`-Regeln für `price_change` anlegen. Senkt der Lieferant seinen Einkaufspreis um X €, enthält der Vorschlag den eigenen Verkaufspreis minus X € (betragsgleich, keine Neukalkulation per Aufschlag). Automatische Übernahme soll später je Regel zuschaltbar sein | Vorgabe des Betreibers. Folge: Kalkulation setzt den Verkaufspreis beim Anlegen, danach folgt er den Senkungen. Umsetzung erst mit dem eigenen Katalog, vorher gibt es keinen Verkaufspreis |
+| 19 | API-Typen in `web/src/api.ts` von Hand gepflegt, passend zu `internal/api/api.go`. **Vorläufig, ohne Betreiber entschieden** | Vier Endpunkte rechtfertigen keine OpenAPI-Kette; bei wachsender API neu bewerten |
+| 20 | Kein Login: Server lauscht nur auf localhost, schreibende Anfragen müssen JSON sein. **Vorläufig** | Ein Nutzer, lokaler Betrieb. Vor jedem Betrieb im Netz braucht es eine Anmeldung |
 
 ## MVP-Umfang
 Hartje-Konnektor über Dateiimport mit Rohdatenablage · Normalisierung und Variantengruppierung · Nutzungsrichtlinie · Preiskalkulation · Regel-Engine (Neuprodukt, Preis, Statuswechsel Verfügbarkeit) · Taskliste mit Freigabe/Ablehnung · Produktansicht mit Feldherkunft und internen Notizen · Auswahl „in den Store“ · Shopify-Sync (Produkt, Varianten, Preise, Bilder, Lieferzeit-Metafeld) im Dry-Run und gegen den Development-Store.
@@ -112,7 +117,10 @@ Später: Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand 
 - Wie Hartje Varianten liefert (flach oder Eltern-Kind) und wie Produkte in Shopify geschnitten werden (pro Modell oder pro Farbe).
 - Development-Store und API-Token fehlen noch.
 - Wie das Theme die Lieferzeit anzeigt (Metafeld-Namespace und -Key).
-- API-Vertrag zwischen Go und React: handgeschriebene Typen oder aus OpenAPI generiert.
+- Erstimport eines ganzen Katalogs erzeugt pro Artikel einen Task „Neues Produkt prüfen“. Die Taskliste zeigt höchstens 200 Einträge; es fehlen Sammelfreigabe, Filter oder eine Regel für Neuprodukte.
+- Jeder Import mit Datenproblemen legt einen neuen Sammel-Task an, auch wenn es dieselben Probleme wie beim letzten Lauf sind.
+- Meldungen zu Datenproblemen und Regelnamen sind englisch, die Oberfläche übersetzt nur die Entscheidungsgründe.
+- Freigegebene Aktionen ändern noch nichts am eigenen Katalog (der fehlt noch); die Freigabe wird nur protokolliert.
 - Preiskalkulation: vorerst Aufschlag auf EK, später weitere Verfahren (Zielmarge ist schon da, „UVP übernehmen“ fehlt). Faktor, Rundung und UVP als Obergrenze sind noch nicht festgelegt.
 - Zu Nr. 18: Was passiert bei EK-Erhöhungen des Lieferanten? Wird X € netto (wie der EK) oder brutto vom Verkaufspreis abgezogen?
 - Zeichensatz der Lieferantendateien: der CSV-Konnektor erwartet UTF-8; Windows-1252 ist noch nicht unterstützt.
