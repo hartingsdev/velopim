@@ -24,6 +24,7 @@ import (
 	"velopim/internal/actions"
 	"velopim/internal/availability"
 	"velopim/internal/connector"
+	"velopim/internal/db"
 	"velopim/internal/pricing"
 	"velopim/internal/rules"
 )
@@ -89,8 +90,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	var mappingJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT availability_mapping FROM source WHERE id = $1`, sourceID).Scan(&mappingJSON); err != nil {
+	q := db.New(tx)
+	mappingJSON, err := q.GetAvailabilityMapping(ctx, sourceID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Result{}, fmt.Errorf("importer: source %q is not configured", sourceID)
 		}
@@ -100,27 +102,27 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	if err := json.Unmarshal(mappingJSON, &mapping); err != nil {
 		return Result{}, fmt.Errorf("importer: availability mapping of %q: %w", sourceID, err)
 	}
-	ruleSet, err := loadRules(ctx, tx)
+	ruleSet, err := loadRules(ctx, q)
 	if err != nil {
 		return Result{}, err
 	}
-	priceRules, err := loadPricingRules(ctx, tx)
+	priceRules, err := loadPricingRules(ctx, q)
 	if err != nil {
 		return Result{}, err
 	}
-	prev, err := loadItems(ctx, tx, sourceID)
+	prev, err := loadItems(ctx, q, sourceID)
 	if err != nil {
 		return Result{}, err
 	}
 
 	res := Result{Status: "done", Records: len(parsed.Records)}
-	if err := tx.QueryRow(ctx,
-		`INSERT INTO import_run (source_id, status, file_path, file_sha256, record_count, started_at)
-		 VALUES ($1, 'running', $2, $3, $4, $5) RETURNING id`,
-		sourceID, filePath, fileHash, len(parsed.Records), now()).Scan(&res.RunID); err != nil {
+	res.RunID, err = q.CreateImportRun(ctx, db.CreateImportRunParams{
+		SourceID: sourceID, FilePath: &filePath, FileSha256: &fileHash,
+		RecordCount: int32(len(parsed.Records)), StartedAt: now()})
+	if err != nil {
 		return Result{}, err
 	}
-	run := &runState{ctx: ctx, tx: tx, runID: res.RunID, sourceID: sourceID, rules: ruleSet, priceRules: priceRules, res: &res}
+	run := &runState{ctx: ctx, q: q, runID: res.RunID, sourceID: sourceID, rules: ruleSet, priceRules: priceRules, res: &res}
 
 	issues := append([]connector.Issue(nil), parsed.Issues...)
 	seen := make(map[string]bool, len(parsed.Records))
@@ -154,7 +156,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	} else {
 		for _, p := range actions.ProposeRemoved(active, keys(seen)) {
 			it := prev[p.SKU]
-			if _, err := tx.Exec(ctx, `UPDATE supplier_item SET active = false, updated_at = now() WHERE id = $1`, it.id); err != nil {
+			if err := q.DeactivateSupplierItem(ctx, it.id); err != nil {
 				return Result{}, err
 			}
 			if err := run.fieldChange(it.id, "active", "true", "false"); err != nil {
@@ -181,9 +183,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 		"new": res.New, "changed": res.Changed, "removed": res.Removed,
 		"quantity_changes": res.QuantityChanges, "issues": issues,
 	})
-	if _, err := tx.Exec(ctx,
-		`UPDATE import_run SET status = $2, issue_count = $3, summary = $4, finished_at = $5 WHERE id = $1`,
-		res.RunID, res.Status, res.Issues, summary, now()); err != nil {
+	finished := now()
+	if err := q.FinishImportRun(ctx, db.FinishImportRunParams{
+		ID: res.RunID, Status: res.Status, IssueCount: int32(res.Issues), Summary: summary, FinishedAt: &finished}); err != nil {
 		return Result{}, err
 	}
 	return res, tx.Commit(ctx)
@@ -199,7 +201,7 @@ type prevItem struct {
 
 type runState struct {
 	ctx        context.Context
-	tx         pgx.Tx
+	q          *db.Queries
 	runID      int64
 	sourceID   string
 	rules      []rules.Rule
@@ -216,11 +218,9 @@ func (s *runState) upsert(rec connector.RawRecord, item connector.SupplierItem, 
 	}
 	if prev == nil || prev.rawHash != hash {
 		fields, _ := json.Marshal(rec.Fields)
-		var id int64
-		if err := s.tx.QueryRow(s.ctx,
-			`INSERT INTO raw_record (source_id, key, content_hash, fields, first_import_run_id)
-			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-			s.sourceID, rec.Key, hash, fields, s.runID).Scan(&id); err != nil {
+		id, err := s.q.InsertRawRecord(s.ctx, db.InsertRawRecordParams{
+			SourceID: s.sourceID, Key: rec.Key, ContentHash: hash, Fields: fields, FirstImportRunID: s.runID})
+		if err != nil {
 			return err
 		}
 		rawID = &id
@@ -229,30 +229,29 @@ func (s *runState) upsert(rec connector.RawRecord, item connector.SupplierItem, 
 	images, _ := json.Marshal(nonNil(item.ImageURLs))
 	attrs, _ := json.Marshal(nonNilMap(item.Attributes))
 	avail, _ := json.Marshal(item.Availability)
-	args := []any{s.sourceID, item.SKU, item.EAN, item.MPN, item.Brand, item.Name, nullInt(int64(item.ModelYear)),
-		item.Category, item.Color, item.FrameSize, item.Description, images,
-		nullInt(item.CostCents), nullInt(item.RRPCents), attrs, avail, string(item.Availability.Status), rawID, s.runID}
+	var year *int32
+	if item.ModelYear != 0 {
+		y := int32(item.ModelYear)
+		year = &y
+	}
+	params := db.InsertSupplierItemParams{
+		SourceID: s.sourceID, Sku: item.SKU, Ean: item.EAN, Mpn: item.MPN, Brand: item.Brand, Name: item.Name,
+		ModelYear: year, Category: item.Category, Color: item.Color, FrameSize: item.FrameSize,
+		Description: item.Description, ImageUrls: images, CostCents: nullInt(item.CostCents),
+		RrpCents: nullInt(item.RRPCents), Attributes: attrs, Availability: avail,
+		AvailabilityStatus: string(item.Availability.Status), RawRecordID: rawID, LastImportRunID: &s.runID,
+	}
 
 	if prev == nil {
-		var id int64
-		if err := s.tx.QueryRow(s.ctx,
-			`INSERT INTO supplier_item (source_id, sku, ean, mpn, brand, name, model_year, category, color, frame_size,
-			   description, image_urls, cost_cents, rrp_cents, attributes, availability, availability_status,
-			   raw_record_id, last_import_run_id)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-			args...).Scan(&id); err != nil {
+		id, err := s.q.InsertSupplierItem(s.ctx, params)
+		if err != nil {
 			return err
 		}
 		s.res.New++
 		return s.decide(actions.Proposal{Type: rules.NewProduct, SKU: item.SKU}, id, item, nil)
 	}
 
-	if _, err := s.tx.Exec(s.ctx,
-		`UPDATE supplier_item SET ean=$3, mpn=$4, brand=$5, name=$6, model_year=$7, category=$8, color=$9,
-		   frame_size=$10, description=$11, image_urls=$12, cost_cents=$13, rrp_cents=$14, attributes=$15,
-		   availability=$16, availability_status=$17, raw_record_id=$18, last_import_run_id=$19,
-		   active=true, updated_at=now()
-		 WHERE source_id=$1 AND sku=$2`, args...); err != nil {
+	if err := s.q.UpdateSupplierItem(s.ctx, db.UpdateSupplierItemParams(params)); err != nil {
 		return err
 	}
 	if !prev.active {
@@ -289,43 +288,31 @@ func (s *runState) decide(p actions.Proposal, itemID int64, item connector.Suppl
 	d := rules.Evaluate(s.rules, rules.Action{
 		Type: p.Type, SourceID: s.sourceID, Brand: item.Brand, Category: item.Category, Facts: facts})
 
-	rows, err := s.tx.Query(s.ctx,
-		`UPDATE action SET status = 'superseded', decided_at = now(), decided_by = 'system'
-		 WHERE supplier_item_id = $1 AND type = $2 AND field = $3 AND status = 'pending_approval' RETURNING id`,
-		itemID, string(p.Type), p.Field)
-	if err != nil {
-		return err
-	}
-	superseded, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	superseded, err := s.q.SupersedePendingActions(s.ctx, db.SupersedePendingActionsParams{
+		SupplierItemID: &itemID, Type: string(p.Type), Field: p.Field})
 	if err != nil {
 		return err
 	}
 	if len(superseded) > 0 {
-		if _, err := s.tx.Exec(s.ctx,
-			`UPDATE task SET status = 'dismissed', closed_at = now(), closed_by = 'system',
-			   note = 'Durch neuere Änderung ersetzt'
-			 WHERE action_id = ANY($1) AND status = 'open'`, superseded); err != nil {
+		if err := s.q.DismissTasksOfActions(s.ctx, superseded); err != nil {
 			return err
 		}
 	}
 
-	status := "pending_approval"
-	if d.Outcome == rules.Auto {
-		status = "auto_applied"
-	}
 	factsJSON, _ := json.Marshal(facts)
-	var ruleID *int64
-	if d.RuleID != 0 {
-		ruleID = &d.RuleID
+	params := db.InsertActionParams{
+		Type: string(p.Type), Status: "pending_approval", SupplierItemID: &itemID, Field: p.Field,
+		OldValue: &p.Old, NewValue: &p.New, Facts: factsJSON, DecisionReason: d.Reason, ImportRunID: &s.runID,
 	}
-	var actionID int64
-	if err := s.tx.QueryRow(s.ctx,
-		`INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, facts, rule_id,
-		   decision_reason, import_run_id, decided_at, decided_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-		   CASE WHEN $2 = 'auto_applied' THEN now() END, CASE WHEN $2 = 'auto_applied' THEN 'rule' END)
-		 RETURNING id`,
-		string(p.Type), status, itemID, p.Field, p.Old, p.New, factsJSON, ruleID, d.Reason, s.runID).Scan(&actionID); err != nil {
+	if d.RuleID != 0 {
+		params.RuleID = &d.RuleID
+	}
+	if d.Outcome == rules.Auto {
+		at, by := time.Now(), "rule"
+		params.Status, params.DecidedAt, params.DecidedBy = "auto_applied", &at, &by
+	}
+	actionID, err := s.q.InsertAction(s.ctx, params)
+	if err != nil {
 		return err
 	}
 	if d.Outcome == rules.Auto {
@@ -359,17 +346,14 @@ func (s *runState) priceFacts(prev, cur connector.SupplierItem) map[rules.Fact]f
 }
 
 func (s *runState) fieldChange(itemID int64, field, old, new string) error {
-	_, err := s.tx.Exec(s.ctx,
-		`INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, origin, import_run_id)
-		 VALUES ('supplier_item', $1, $2, $3, $4, 'import', $5)`, itemID, field, old, new, s.runID)
-	return err
+	return s.q.InsertImportFieldChange(s.ctx, db.InsertImportFieldChangeParams{
+		EntityID: itemID, Field: field, OldValue: &old, NewValue: &new, ImportRunID: &s.runID})
 }
 
 func (s *runState) task(kind string, prio int, title, detail string, actionID, itemID *int64) error {
-	_, err := s.tx.Exec(s.ctx,
-		`INSERT INTO task (kind, title, detail, priority, action_id, supplier_item_id, import_run_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`, kind, title, detail, prio, actionID, itemID, s.runID)
-	return err
+	return s.q.InsertTask(s.ctx, db.InsertTaskParams{
+		Kind: kind, Title: title, Detail: detail, Priority: int16(prio),
+		ActionID: actionID, SupplierItemID: itemID, ImportRunID: &s.runID})
 }
 
 func taskTitle(p actions.Proposal, item connector.SupplierItem) (string, int) {
@@ -421,65 +405,66 @@ func pickPricing(rs []pricingRule, brand, category string) (pricing.Config, bool
 	return best, bestScore >= 0
 }
 
-func loadRules(ctx context.Context, tx pgx.Tx) ([]rules.Rule, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT id, name, enabled, action_type, scope_source_id, scope_brand, scope_category, conditions, outcome, guard
-		 FROM rule WHERE enabled`)
+func loadRules(ctx context.Context, q *db.Queries) ([]rules.Rule, error) {
+	rows, err := q.ListEnabledRules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (rules.Rule, error) {
-		var r rules.Rule
-		var conds []byte
-		var actionType, outcome string
-		if err := row.Scan(&r.ID, &r.Name, &r.Enabled, &actionType, &r.Scope.SourceID, &r.Scope.Brand,
-			&r.Scope.Category, &conds, &outcome, &r.Guard); err != nil {
-			return r, err
+	out := make([]rules.Rule, 0, len(rows))
+	for _, row := range rows {
+		r := rules.Rule{
+			ID: row.ID, Name: row.Name, Enabled: row.Enabled, ActionType: rules.ActionType(row.ActionType),
+			Scope:   rules.Scope{SourceID: row.ScopeSourceID, Brand: row.ScopeBrand, Category: row.ScopeCategory},
+			Outcome: rules.Outcome(row.Outcome), Guard: row.Guard,
 		}
-		r.ActionType, r.Outcome = rules.ActionType(actionType), rules.Outcome(outcome)
-		return r, json.Unmarshal(conds, &r.Conditions)
-	})
+		if err := json.Unmarshal(row.Conditions, &r.Conditions); err != nil {
+			return nil, fmt.Errorf("importer: conditions of rule %d: %w", row.ID, err)
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
-func loadPricingRules(ctx context.Context, tx pgx.Tx) ([]pricingRule, error) {
-	rows, err := tx.Query(ctx, `SELECT scope_brand, scope_category, config FROM pricing_rule`)
+func loadPricingRules(ctx context.Context, q *db.Queries) ([]pricingRule, error) {
+	rows, err := q.ListPricingRules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (pricingRule, error) {
-		var r pricingRule
-		var cfg []byte
-		if err := row.Scan(&r.brand, &r.category, &cfg); err != nil {
-			return r, err
+	out := make([]pricingRule, 0, len(rows))
+	for _, row := range rows {
+		r := pricingRule{brand: row.ScopeBrand, category: row.ScopeCategory}
+		if err := json.Unmarshal(row.Config, &r.cfg); err != nil {
+			return nil, fmt.Errorf("importer: pricing rule: %w", err)
 		}
-		return r, json.Unmarshal(cfg, &r.cfg)
-	})
+		out = append(out, r)
+	}
+	return out, nil
 }
 
-func loadItems(ctx context.Context, tx pgx.Tx, sourceID string) (map[string]*prevItem, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT s.id, s.active, s.raw_record_id, coalesce(r.content_hash, ''), s.sku, s.ean, s.mpn, s.brand, s.name,
-		   coalesce(s.model_year, 0), s.category, s.color, s.frame_size, s.description, s.image_urls,
-		   coalesce(s.cost_cents, 0), coalesce(s.rrp_cents, 0), s.attributes, s.availability
-		 FROM supplier_item s LEFT JOIN raw_record r ON r.id = s.raw_record_id
-		 WHERE s.source_id = $1`, sourceID)
+func loadItems(ctx context.Context, q *db.Queries, sourceID string) (map[string]*prevItem, error) {
+	rows, err := q.ListSupplierItems(ctx, sourceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := map[string]*prevItem{}
-	for rows.Next() {
-		p := &prevItem{}
+	out := make(map[string]*prevItem, len(rows))
+	for _, row := range rows {
+		p := &prevItem{id: row.ID, active: row.Active, rawID: row.RawRecordID, rawHash: row.RawHash}
+		p.item = connector.SupplierItem{
+			SourceID: sourceID, SKU: row.Sku, EAN: row.Ean, MPN: row.Mpn, Brand: row.Brand, Name: row.Name,
+			Category: row.Category, Color: row.Color, FrameSize: row.FrameSize, Description: row.Description,
+		}
 		it := &p.item
-		var images, attrs, avail []byte
-		if err := rows.Scan(&p.id, &p.active, &p.rawID, &p.rawHash, &it.SKU, &it.EAN, &it.MPN, &it.Brand, &it.Name,
-			&it.ModelYear, &it.Category, &it.Color, &it.FrameSize, &it.Description, &images,
-			&it.CostCents, &it.RRPCents, &attrs, &avail); err != nil {
-			return nil, err
+		if row.ModelYear != nil {
+			it.ModelYear = int(*row.ModelYear)
 		}
-		it.SourceID = sourceID
-		if err := errors.Join(json.Unmarshal(images, &it.ImageURLs), json.Unmarshal(attrs, &it.Attributes),
-			json.Unmarshal(avail, &it.Availability)); err != nil {
+		if row.CostCents != nil {
+			it.CostCents = *row.CostCents
+		}
+		if row.RrpCents != nil {
+			it.RRPCents = *row.RrpCents
+		}
+		if err := errors.Join(json.Unmarshal(row.ImageUrls, &it.ImageURLs), json.Unmarshal(row.Attributes, &it.Attributes),
+			json.Unmarshal(row.Availability, &it.Availability)); err != nil {
 			return nil, fmt.Errorf("importer: stored article %s: %w", it.SKU, err)
 		}
 		if len(it.ImageURLs) == 0 {
@@ -490,7 +475,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, sourceID string) (map[string]*pre
 		}
 		out[it.SKU] = p
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func storeOriginal(dir, sourceID, hash string, at time.Time, data []byte) (string, error) {

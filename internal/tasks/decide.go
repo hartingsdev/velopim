@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"velopim/internal/db"
 )
 
 // ErrNotOpen is returned when a task is already closed or does not exist.
@@ -31,11 +33,8 @@ func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, approve bool,
 	if !approve {
 		taskStatus, actionStatus = "dismissed", "rejected"
 	}
-	var actionID *int64
-	err = tx.QueryRow(ctx,
-		`UPDATE task SET status = $2, closed_at = now(), closed_by = $3, note = $4
-		 WHERE id = $1 AND status = 'open' RETURNING action_id`,
-		taskID, taskStatus, actor, note).Scan(&actionID)
+	q := db.New(tx)
+	actionID, err := q.CloseOpenTask(ctx, db.CloseOpenTaskParams{ID: taskID, Status: taskStatus, ClosedBy: &actor, Note: &note})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotOpen
 	}
@@ -43,14 +42,12 @@ func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, approve bool,
 		return err
 	}
 	if actionID != nil {
-		tag, err := tx.Exec(ctx,
-			`UPDATE action SET status = $2, decided_at = now(), decided_by = $3, decision_note = $4
-			 WHERE id = $1 AND status = 'pending_approval'`,
-			*actionID, actionStatus, actor, note)
+		n, err := q.DecidePendingAction(ctx, db.DecidePendingActionParams{
+			ID: *actionID, Status: actionStatus, DecidedBy: &actor, DecisionNote: &note})
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() != 1 {
+		if n != 1 {
 			return fmt.Errorf("tasks: action %d is not pending", *actionID)
 		}
 	}

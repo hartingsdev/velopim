@@ -22,7 +22,7 @@
 
 ## Tech-Stack
 - Backend: Go, ein Binary. HTTP mit `net/http`, JSON-API unter `/api`.
-- Datenbank: PostgreSQL. Zugriff mit `pgx` (handgeschriebene Abfragen), Migrationen mit `goose`.
+- Datenbank: PostgreSQL. Zugriff mit `pgx` + `sqlc` (SQL in `db/queries/`, generierter Code in `internal/db/`, nicht von Hand ändern), Migrationen mit `goose`.
 - Hintergrundjobs: River (Queue in PostgreSQL, kein Redis).
 - Frontend: React + TypeScript + Vite in `web/`. Build-Ergebnis wird per `go:embed` ins Binary gepackt, in Produktion läuft kein Node.
 - Shopify: Admin GraphQL API.
@@ -34,6 +34,7 @@
 - Migrationen: `go run github.com/pressly/goose/v3/cmd/goose@v3.24.1 -dir db/migrations postgres "$DATABASE_URL" up`
 - Tests ohne Datenbank: `go test ./...` (Datenbanktests werden übersprungen).
 - Tests mit Datenbank: `TEST_DATABASE_URL="$DATABASE_URL" go test ./...` (jeder Test legt ein eigenes Schema an und löscht es wieder).
+- Nach Änderungen an `db/queries/` oder `db/migrations/`: `sqlc generate` (sqlc liegt in `~/.local/bin`, ohne C-Compiler gebaut mit `CGO_ENABLED=0 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`).
 - Vor jedem Commit: `gofmt -l .` und `go vet ./...` müssen sauber sein.
 
 ## Stand
@@ -93,9 +94,9 @@ testdata/           Beispiel-Lieferantendaten
 | 9 | Bestand im MVP: nur „verkaufbar“ + Lieferzeit-Metafeld, keine Stückzahlen | Eigenbestand wird noch nicht geführt; später eigene Shopify-Location |
 | 10 | Regeln strukturiert statt freier Regelsprache | Testbar, per Formular pflegbar |
 | 11 | Matching gestuft: EAN → Herstellernummer + Marke → manuell per Task | EANs fehlen, sind falsch oder werden wiederverwendet |
-| 12 | `supplier_item` zeigt immer den letzten Stand des Lieferanten; Aktionen steuern nur die Übernahme in den eigenen Katalog und zu Shopify | Lieferantensicht bleibt wahrheitsgetreu, Freigaben wirken dort, wo es öffentlich wird. **Noch vom Betreiber zu bestätigen** |
-| 13 | Schutzregeln (`guard`): erzwingen Freigabe auch gegen spezifischere Regeln | Sonst hebelt eine Markenregel „unter Mindestmarge immer Freigabe“ aus. **Noch zu bestätigen** |
-| 14 | `pgx` direkt statt `sqlc` | `sqlc` braucht für PostgreSQL einen C-Compiler, der auf dem Rechner fehlt; bei wenigen Abfragen kein Verlust. **Noch zu bestätigen** |
+| 12 | `supplier_item` zeigt immer den letzten Stand des Lieferanten; Aktionen steuern nur die Übernahme in den eigenen Katalog und zu Shopify | Lieferantensicht bleibt wahrheitsgetreu, Freigaben wirken dort, wo es öffentlich wird. Vom Betreiber bestätigt |
+| 13 | Schutzregeln (`guard`): erzwingen Freigabe auch gegen spezifischere Regeln | Sonst hebelt eine Markenregel „unter Mindestmarge immer Freigabe“ aus. **Offen:** Betreiber will Preise nie automatisch ändern, Hartje-Preissenkungen aber betragsgleich weitergeben; genaue Bedeutung noch zu klären |
+| 14 | Datenbankzugriff über `sqlc` (Wunsch des Betreibers) | Abfragen werden beim Generieren gegen das Schema geprüft; kein handgeschriebenes SQL im Go-Code |
 | 15 | Import wird angehalten, wenn mehr als 20 % der aktiven Artikel fehlen | Abgeschnittene Lieferungen dürfen nichts deaktivieren; es entsteht ein Task |
 | 16 | Eine neuere offene Aktion ersetzt die ältere für dasselbe Feld (`superseded`) | Tasks stapeln sich nicht bei wiederholten Änderungen |
 | 17 | Datenprobleme eines Imports ergeben einen Sammel-Task, Details in `import_run.summary` | Tausende fehlende EANs dürfen die Taskliste nicht fluten |
@@ -111,7 +112,7 @@ Später: Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand 
 - Development-Store und API-Token fehlen noch.
 - Wie das Theme die Lieferzeit anzeigt (Metafeld-Namespace und -Key).
 - API-Vertrag zwischen Go und React: handgeschriebene Typen oder aus OpenAPI generiert.
-- Preiskalkulation: Aufschlag oder Zielmarge, Rundung, UVP als Obergrenze und Streichpreis. Der Code kann alles, die Werte fehlen.
+- Preiskalkulation: vorerst Aufschlag auf EK, später weitere Verfahren (Zielmarge ist schon da, „UVP übernehmen“ fehlt). Faktor, Rundung und UVP als Obergrenze sind noch nicht festgelegt.
 - Zeichensatz der Lieferantendateien: der CSV-Konnektor erwartet UTF-8; Windows-1252 ist noch nicht unterstützt.
 - Texte für die Lieferzeit-Anzeige stehen fest im Code (`availability.Derive`), sollen später konfigurierbar sein.
 - `testdata/example_supplier.csv` ist erfunden und kein Hartje-Format.
