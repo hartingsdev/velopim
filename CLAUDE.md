@@ -100,7 +100,7 @@ testdata/           Beispiel-Lieferantendaten
 | 15 | Import wird angehalten, wenn mehr als 20 % der aktiven Artikel fehlen | Abgeschnittene Lieferungen dürfen nichts deaktivieren; es entsteht ein Task |
 | 16 | Eine neuere offene Aktion ersetzt die ältere für dasselbe Feld (`superseded`) | Tasks stapeln sich nicht bei wiederholten Änderungen |
 | 17 | Datenprobleme eines Imports ergeben einen Sammel-Task, Details in `import_run.summary` | Tausende fehlende EANs dürfen die Taskliste nicht fluten |
-| 18 | Preisänderungen gehen vorerst immer zur Freigabe, keine `auto`-Regeln für `price_change` anlegen. Senkt der Lieferant seinen Preis um X €, enthält der Vorschlag den eigenen Verkaufspreis minus X € (betragsgleich, keine Neukalkulation per Aufschlag). Automatische Übernahme soll später je Regel zuschaltbar sein | Vorgabe des Betreibers. Folge: Kalkulation setzt den Verkaufspreis beim Anlegen, danach folgt er den Senkungen. Umsetzung erst mit dem eigenen Katalog, vorher gibt es keinen Verkaufspreis |
+| 18 | Preisänderungen gehen vorerst immer zur Freigabe, keine `auto`-Regeln für `price_change` anlegen. Senkt der Lieferant seinen Einkaufspreis um X €, enthält der Vorschlag den eigenen Verkaufspreis minus X € (betragsgleich, keine Neukalkulation per Aufschlag). Automatische Übernahme soll später je Regel zuschaltbar sein | Vorgabe des Betreibers. Folge: Kalkulation setzt den Verkaufspreis beim Anlegen, danach folgt er den Senkungen. Umsetzung erst mit dem eigenen Katalog, vorher gibt es keinen Verkaufspreis |
 
 ## MVP-Umfang
 Hartje-Konnektor über Dateiimport mit Rohdatenablage · Normalisierung und Variantengruppierung · Nutzungsrichtlinie · Preiskalkulation · Regel-Engine (Neuprodukt, Preis, Statuswechsel Verfügbarkeit) · Taskliste mit Freigabe/Ablehnung · Produktansicht mit Feldherkunft und internen Notizen · Auswahl „in den Store“ · Shopify-Sync (Produkt, Varianten, Preise, Bilder, Lieferzeit-Metafeld) im Dry-Run und gegen den Development-Store.
@@ -114,7 +114,7 @@ Später: Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand 
 - Wie das Theme die Lieferzeit anzeigt (Metafeld-Namespace und -Key).
 - API-Vertrag zwischen Go und React: handgeschriebene Typen oder aus OpenAPI generiert.
 - Preiskalkulation: vorerst Aufschlag auf EK, später weitere Verfahren (Zielmarge ist schon da, „UVP übernehmen“ fehlt). Faktor, Rundung und UVP als Obergrenze sind noch nicht festgelegt.
-- Zu Nr. 18: Welcher Lieferantenpreis löst die betragsgleiche Senkung aus (UVP oder EK)? Was passiert bei Preiserhöhungen des Lieferanten?
+- Zu Nr. 18: Was passiert bei EK-Erhöhungen des Lieferanten? Wird X € netto (wie der EK) oder brutto vom Verkaufspreis abgezogen?
 - Zeichensatz der Lieferantendateien: der CSV-Konnektor erwartet UTF-8; Windows-1252 ist noch nicht unterstützt.
 - Texte für die Lieferzeit-Anzeige stehen fest im Code (`availability.Derive`), sollen später konfigurierbar sein.
 - `testdata/example_supplier.csv` ist erfunden und kein Hartje-Format.
