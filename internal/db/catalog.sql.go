@@ -58,6 +58,49 @@ func (q *Queries) GetPricedVariantOfSupplierItem(ctx context.Context, supplierIt
 	return i, err
 }
 
+const getProductImages = `-- name: GetProductImages :one
+SELECT image_urls FROM product WHERE id = $1
+`
+
+func (q *Queries) GetProductImages(ctx context.Context, id int64) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getProductImages, id)
+	var image_urls []byte
+	err := row.Scan(&image_urls)
+	return image_urls, err
+}
+
+const getVariantOfSupplierItem = `-- name: GetVariantOfSupplierItem :one
+SELECT v.id, v.product_id, v.ean, v.price_cents, v.compare_at_cents, p.description_html
+FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+JOIN product p ON p.id = v.product_id
+WHERE vs.supplier_item_id = $1
+`
+
+type GetVariantOfSupplierItemRow struct {
+	ID              int64
+	ProductID       int64
+	Ean             string
+	PriceCents      *int64
+	CompareAtCents  *int64
+	DescriptionHtml string
+}
+
+// The variant an article is the preferred supplier of.
+func (q *Queries) GetVariantOfSupplierItem(ctx context.Context, supplierItemID int64) (GetVariantOfSupplierItemRow, error) {
+	row := q.db.QueryRow(ctx, getVariantOfSupplierItem, supplierItemID)
+	var i GetVariantOfSupplierItemRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProductID,
+		&i.Ean,
+		&i.PriceCents,
+		&i.CompareAtCents,
+		&i.DescriptionHtml,
+	)
+	return i, err
+}
+
 const getVariantPrice = `-- name: GetVariantPrice :one
 SELECT price_cents FROM variant WHERE id = $1
 `
@@ -410,6 +453,36 @@ func (q *Queries) ListProductsOfModel(ctx context.Context, modelKey string) ([]L
 	return items, nil
 }
 
+const listSupplierImagesOfProduct = `-- name: ListSupplierImagesOfProduct :many
+SELECT s.image_urls
+FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = $1
+ORDER BY v.id
+`
+
+// Image lists of the preferred supplier articles behind a product's variants.
+func (q *Queries) ListSupplierImagesOfProduct(ctx context.Context, productID int64) ([][]byte, error) {
+	rows, err := q.db.Query(ctx, listSupplierImagesOfProduct, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var image_urls []byte
+		if err := rows.Scan(&image_urls); err != nil {
+			return nil, err
+		}
+		items = append(items, image_urls)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVariantsOfProducts = `-- name: ListVariantsOfProducts :many
 SELECT v.id, v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
        s.sku AS supplier_sku, s.source_id, s.cost_cents, s.rrp_cents, s.availability_status
@@ -490,6 +563,62 @@ type SetActionProposedPriceParams struct {
 
 func (q *Queries) SetActionProposedPrice(ctx context.Context, arg SetActionProposedPriceParams) error {
 	_, err := q.db.Exec(ctx, setActionProposedPrice, arg.ID, arg.ProposedPriceCents)
+	return err
+}
+
+const setProductDescription = `-- name: SetProductDescription :exec
+UPDATE product SET description_html = $2, updated_at = now() WHERE id = $1
+`
+
+type SetProductDescriptionParams struct {
+	ID              int64
+	DescriptionHtml string
+}
+
+func (q *Queries) SetProductDescription(ctx context.Context, arg SetProductDescriptionParams) error {
+	_, err := q.db.Exec(ctx, setProductDescription, arg.ID, arg.DescriptionHtml)
+	return err
+}
+
+const setProductImages = `-- name: SetProductImages :exec
+UPDATE product SET image_urls = $2, updated_at = now() WHERE id = $1
+`
+
+type SetProductImagesParams struct {
+	ID        int64
+	ImageUrls []byte
+}
+
+func (q *Queries) SetProductImages(ctx context.Context, arg SetProductImagesParams) error {
+	_, err := q.db.Exec(ctx, setProductImages, arg.ID, arg.ImageUrls)
+	return err
+}
+
+const setVariantCompareAt = `-- name: SetVariantCompareAt :exec
+UPDATE variant SET compare_at_cents = $2, updated_at = now() WHERE id = $1
+`
+
+type SetVariantCompareAtParams struct {
+	ID             int64
+	CompareAtCents *int64
+}
+
+func (q *Queries) SetVariantCompareAt(ctx context.Context, arg SetVariantCompareAtParams) error {
+	_, err := q.db.Exec(ctx, setVariantCompareAt, arg.ID, arg.CompareAtCents)
+	return err
+}
+
+const setVariantEAN = `-- name: SetVariantEAN :exec
+UPDATE variant SET ean = $2, updated_at = now() WHERE id = $1
+`
+
+type SetVariantEANParams struct {
+	ID  int64
+	Ean string
+}
+
+func (q *Queries) SetVariantEAN(ctx context.Context, arg SetVariantEANParams) error {
+	_, err := q.db.Exec(ctx, setVariantEAN, arg.ID, arg.Ean)
 	return err
 }
 

@@ -315,3 +315,74 @@ func TestCorrectingPricesAtApproval(t *testing.T) {
 		t.Errorf("corrected price change: %s", got)
 	}
 }
+
+func TestApprovedSupplierChangesReachTheCatalog(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO pricing_rule (config) VALUES ('{"mode": "markup", "value": 1.5, "vat_pct": 19}');
+		INSERT INTO rule (name, action_type, outcome) VALUES ('images are automatic', 'images_change', 'auto');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := csvfile.New(csvfile.Config{SourceID: "example", Delimiter: ";", DecimalComma: true,
+		Columns: map[string]string{csvfile.SKU: "Nr", csvfile.EAN: "EAN", csvfile.Brand: "Marke", csvfile.Name: "Name",
+			csvfile.ModelYear: "Jahr", csvfile.Color: "Farbe", csvfile.FrameSize: "RH", csvfile.Cost: "EK", csvfile.RRP: "UVP",
+			csvfile.Description: "Text", csvfile.Images: "Bilder"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(rows ...string) {
+		t.Helper()
+		file := strings.NewReader("Nr;EAN;Marke;Name;Jahr;Farbe;RH;EK;UVP;Text;Bilder\n" + strings.Join(rows, "\n") + "\n")
+		if _, err := importer.Run(ctx, pool, conn, file, importer.Options{RawDir: t.TempDir(), MaxDropPct: 100}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	approve := func(field string) {
+		t.Helper()
+		var id int64
+		if err := pool.QueryRow(ctx, `SELECT t.id FROM task t JOIN action a ON a.id = t.action_id
+			WHERE a.field = $1 AND t.status = 'open'`, field).Scan(&id); err != nil {
+			t.Fatalf("open task for %s: %v", field, err)
+		}
+		if err := tasks.Decide(ctx, pool, id, tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func() string {
+		return query(t, pool, `SELECT p.description_html || ' | ' || p.image_urls::text || ' | ' ||
+			string_agg(v.ean || ' ' || v.price_cents || '/' || coalesce(v.compare_at_cents::text, '-'), ', ' ORDER BY v.sku)
+			FROM product p JOIN variant v ON v.product_id = p.id GROUP BY p.id`)
+	}
+
+	load("1;;Beispielrad;City 3;2027;rot;50;1.000,00;1.999,00;Alter Text;https://example.test/a.jpg",
+		"2;;Beispielrad;City 3;2027;rot;54;1.000,00;1.999,00;Alter Text;https://example.test/a.jpg")
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, "Beispielrad City 3 (2027)"), tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := state(), `Alter Text | ["https://example.test/a.jpg"] |  178500/199900,  178500/199900`; got != want {
+		t.Fatalf("initial state:\n got  %s\n want %s", got, want)
+	}
+
+	// Article 1 gets a new text, a second image, an EAN and a lower RRP.
+	// Images follow automatically by rule; the rest waits for approval.
+	load("1;4006381333931;Beispielrad;City 3;2027;rot;50;1.000,00;1.700,00;Neuer Text;https://example.test/a.jpg|https://example.test/b.jpg",
+		"2;;Beispielrad;City 3;2027;rot;54;1.000,00;1.999,00;Alter Text;https://example.test/a.jpg")
+	if got, want := state(), `Alter Text | ["https://example.test/a.jpg", "https://example.test/b.jpg"] |  178500/199900,  178500/199900`; got != want {
+		t.Errorf("after import (only images are automatic):\n got  %s\n want %s", got, want)
+	}
+	approve("description")
+	approve("ean")
+	approve("rrp_cents") // RRP below the sales price: no compare-at price
+	if got, want := state(), `Neuer Text | ["https://example.test/a.jpg", "https://example.test/b.jpg"] | 4006381333931 178500/-,  178500/199900`; got != want {
+		t.Errorf("after approvals:\n got  %s\n want %s", got, want)
+	}
+	got := query(t, pool, `SELECT string_agg(entity_type || '.' || field || ' ' || origin || ' ' || coalesce(actor, '-'), ' | ' ORDER BY entity_type, field)
+		FROM field_change WHERE reason = 'Änderung des Lieferanten übernommen'`)
+	want := "product.description_html user robert | product.image_urls rule - | variant.compare_at_cents user robert | variant.ean user robert"
+	if got != want {
+		t.Errorf("field changes:\n got  %s\n want %s", got, want)
+	}
+}

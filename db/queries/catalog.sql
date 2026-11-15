@@ -106,3 +106,35 @@ WHERE id = $1;
 
 -- name: SetActionProposedPrice :exec
 UPDATE action SET proposed_price_cents = $2 WHERE id = $1;
+
+-- name: GetVariantOfSupplierItem :one
+-- The variant an article is the preferred supplier of.
+SELECT v.id, v.product_id, v.ean, v.price_cents, v.compare_at_cents, p.description_html
+FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+JOIN product p ON p.id = v.product_id
+WHERE vs.supplier_item_id = $1;
+
+-- name: SetProductDescription :exec
+UPDATE product SET description_html = $2, updated_at = now() WHERE id = $1;
+
+-- name: GetProductImages :one
+SELECT image_urls FROM product WHERE id = $1;
+
+-- name: ListSupplierImagesOfProduct :many
+-- Image lists of the preferred supplier articles behind a product's variants.
+SELECT s.image_urls
+FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = $1
+ORDER BY v.id;
+
+-- name: SetProductImages :exec
+UPDATE product SET image_urls = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetVariantCompareAt :exec
+UPDATE variant SET compare_at_cents = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetVariantEAN :exec
+UPDATE variant SET ean = $2, updated_at = now() WHERE id = $1;

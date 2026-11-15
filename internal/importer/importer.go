@@ -478,7 +478,7 @@ func (s *runState) decide(p actions.Proposal, itemID int64, item connector.Suppl
 			return catalog.ShiftVariantPrice(s.ctx, s.q, *variantID, *proposedPrice-*basePrice, "rule", actionID, "",
 				"Einkaufspreis des Lieferanten geändert")
 		}
-		return nil
+		return catalog.ApplyItemChange(s.ctx, s.q, actionID, itemID, p.Field, p.New, "rule", "")
 	}
 	s.res.PendingApproval++
 	title, prio := taskTitle(p, item)

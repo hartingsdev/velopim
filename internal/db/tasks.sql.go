@@ -37,7 +37,7 @@ func (q *Queries) CloseOpenTask(ctx context.Context, arg CloseOpenTaskParams) (*
 const decidePendingAction = `-- name: DecidePendingAction :one
 UPDATE action SET status = $2, decided_at = now(), decided_by = $3, decision_note = $4
 WHERE id = $1 AND status = 'pending_approval'
-RETURNING type, model_key, variant_id, base_price_cents, proposed_price_cents
+RETURNING type, model_key, variant_id, base_price_cents, proposed_price_cents, supplier_item_id, field, new_value
 `
 
 type DecidePendingActionParams struct {
@@ -53,6 +53,9 @@ type DecidePendingActionRow struct {
 	VariantID          *int64
 	BasePriceCents     *int64
 	ProposedPriceCents *int64
+	SupplierItemID     *int64
+	Field              string
+	NewValue           *string
 }
 
 func (q *Queries) DecidePendingAction(ctx context.Context, arg DecidePendingActionParams) (DecidePendingActionRow, error) {
@@ -69,6 +72,9 @@ func (q *Queries) DecidePendingAction(ctx context.Context, arg DecidePendingActi
 		&i.VariantID,
 		&i.BasePriceCents,
 		&i.ProposedPriceCents,
+		&i.SupplierItemID,
+		&i.Field,
+		&i.NewValue,
 	)
 	return i, err
 }

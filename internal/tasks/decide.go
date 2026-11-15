@@ -44,7 +44,8 @@ type Decision struct {
 //
 // Approving a new-model action creates its products and variants. Approving
 // a purchase price change with a price proposal sets the variant's sales
-// price. A *catalog.BlockedError means the approval is not possible as asked
+// price. Approving a changed description, image list, RRP or EAN copies it
+// to the product or variant. A *catalog.BlockedError means the approval is not possible as asked
 // and nothing was changed.
 func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, d Decision) error {
 	if d.Actor == "" {
@@ -92,7 +93,7 @@ func apply(ctx context.Context, q *db.Queries, actionID int64, action db.DecideP
 	case action.Type == "new_product" && action.ModelKey != "":
 		return catalog.CreateFromAction(ctx, q, actionID, action.ModelKey, d.SplitBy, d.VariantPrices, d.Actor)
 
-	case action.Type == "price_change":
+	case action.Type == "price_change" && action.Field == "cost_cents":
 		hasProposal := action.VariantID != nil && action.BasePriceCents != nil && action.ProposedPriceCents != nil
 		if d.PriceCents != nil && (!hasProposal || *d.PriceCents != *action.ProposedPriceCents) {
 			if action.VariantID == nil {
@@ -109,6 +110,9 @@ func apply(ctx context.Context, q *db.Queries, actionID int64, action db.DecideP
 			return catalog.ShiftVariantPrice(ctx, q, *action.VariantID, delta, "user", actionID, d.Actor,
 				"Preisänderung freigegeben")
 		}
+
+	case action.SupplierItemID != nil && action.NewValue != nil:
+		return catalog.ApplyItemChange(ctx, q, actionID, *action.SupplierItemID, action.Field, *action.NewValue, "user", d.Actor)
 	}
 	return nil
 }
