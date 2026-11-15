@@ -1,7 +1,7 @@
 # Offene Punkte
 
 ## Vom Betreiber zu klären
-- **Hartje-Zugang und Datenformat:** unbekannt (CSV- oder BMEcat-Feed, veloconnect, API?). Keine Annahmen treffen; bis zur Klärung gilt die Dateischnittstelle mit Testdaten. Am meisten hilft eine echte Beispieldatei.
+- **Hartje-Zugang und Datenformat:** unbekannt (CSV- oder BMEcat-Feed, veloconnect, API?). Keine Annahmen treffen. Bei einer CSV-Datei: im Reiter „Lieferanten“ einen Lieferanten anlegen, die Datei als Beispiel wählen und die Spalten zuordnen. Bei einem anderen Format braucht es einen neuen Konnektor.
 - **Varianten bei Hartje:** flach oder Eltern-Kind? Sind Modellname, Farbe und Rahmenform sauber genug für die Gruppierung?
 - **Development-Store:** eingerichtet (`fahrrad-ass-dev`), Zugangsdaten stehen in der `.env`.
 - **Recht `write_publications`:** Soll die App es bekommen, damit freigegebene Produkte im Kanal „Onlineshop“ erscheinen? Dazu in der App eine neue Version mit diesem Recht anlegen und die Installation bestätigen.

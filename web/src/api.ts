@@ -470,3 +470,42 @@ export async function resplitProduct(id: number, splitBy: string[]): Promise<num
   });
   return body.product_id;
 }
+
+export interface CsvConfig {
+  delimiter: string;
+  decimal_comma: boolean;
+  columns: Record<string, string>;
+  image_separator?: string;
+  attribute_columns?: string[];
+  encoding?: string;
+}
+
+export interface SourceConfig {
+  id: string;
+  name: string;
+  connector_kind: string;
+  connector_config: CsvConfig;
+  /** Ordered rules that turn raw fields into an availability status. */
+  availability_mapping: unknown[];
+}
+
+export async function listSources(): Promise<SourceConfig[]> {
+  const body = await request<{ sources: SourceConfig[] }>("/api/sources");
+  return body.sources;
+}
+
+export function saveSource(id: string, source: Omit<SourceConfig, "id" | "connector_kind">): Promise<void> {
+  return send("PUT", `/api/sources/${encodeURIComponent(id)}`, source);
+}
+
+export interface CsvPreview {
+  delimiter: string;
+  encoding: string;
+  columns: string[];
+  rows: string[][];
+}
+
+/** Reads header and first rows of a file so its columns can be mapped. Stores nothing. */
+export function previewCsv(file: File): Promise<CsvPreview> {
+  return request("/api/csv-preview", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+}

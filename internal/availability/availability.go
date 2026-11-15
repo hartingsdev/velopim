@@ -197,3 +197,39 @@ func days(n int) string {
 	}
 	return fmt.Sprintf("%d Werktage", n)
 }
+
+// ValidateRules reports the first reason a list of mapping rules cannot be
+// stored.
+func ValidateRules(rules []MappingRule) error {
+	for i, r := range rules {
+		where := fmt.Sprintf("rule %d (%s)", i+1, r.Name)
+		switch r.Status {
+		case InStock, Orderable, Preorder, OnRequest, Unavailable, Discontinued:
+		default:
+			return fmt.Errorf("availability: %s: unknown status %q", where, r.Status)
+		}
+		for _, c := range r.When {
+			if c.Field == "" {
+				return fmt.Errorf("availability: %s: a condition has no field", where)
+			}
+			switch c.Op {
+			case Eq, Contains, Empty, NotEmpty:
+			case GT, LTE:
+				if _, ok := number(c.Value); !ok {
+					return fmt.Errorf("availability: %s: %q needs a number, got %q", where, c.Op, c.Value)
+				}
+			default:
+				return fmt.Errorf("availability: %s: unknown operator %q", where, c.Op)
+			}
+		}
+		if r.LeadMinDays != nil && r.LeadMaxDays != nil && *r.LeadMinDays > *r.LeadMaxDays {
+			return fmt.Errorf("availability: %s: lead time from is greater than to", where)
+		}
+		if r.DateField != "" {
+			if r.DateLayout == "" {
+				return fmt.Errorf("availability: %s: date_field needs a date_layout such as 02.01.2006", where)
+			}
+		}
+	}
+	return nil
+}

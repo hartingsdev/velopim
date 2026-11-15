@@ -261,3 +261,35 @@ func decodeWindows1252(data []byte) []byte {
 	}
 	return out
 }
+
+// Preview reads the header and the first rows of a file, to help mapping
+// its columns. encoding is as in Config; the detected encoding is returned.
+func Preview(data []byte, delimiter, encoding string, maxRows int) (header []string, rows [][]string, detected string, err error) {
+	if len([]rune(delimiter)) != 1 {
+		return nil, nil, "", errors.New("csvfile: delimiter must be a single character")
+	}
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	detected = "utf-8"
+	if encoding == "windows-1252" || encoding == "" && !utf8.Valid(data) {
+		data, detected = decodeWindows1252(data), "windows-1252"
+	}
+	cr := csv.NewReader(bytes.NewReader(data))
+	cr.Comma = []rune(delimiter)[0]
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+	header, err = cr.Read()
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("csvfile: reading header: %w", err)
+	}
+	for i := range header {
+		header[i] = strings.TrimSpace(header[i])
+	}
+	for len(rows) < maxRows {
+		row, err := cr.Read()
+		if err != nil {
+			break
+		}
+		rows = append(rows, row)
+	}
+	return header, rows, detected, nil
+}

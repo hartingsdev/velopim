@@ -114,3 +114,12 @@ SELECT EXISTS (
     SELECT 1 FROM task t JOIN import_run r ON r.id = t.import_run_id
     WHERE r.source_id = sqlc.arg(source_id)::text AND t.kind = sqlc.arg(kind)::text AND t.status = 'open'
 )::bool AS open;
+
+-- name: ListSourcesFull :many
+SELECT id, name, connector_kind, connector_config, availability_mapping FROM source ORDER BY name;
+
+-- name: UpsertSource :exec
+INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, connector_kind = EXCLUDED.connector_kind,
+    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping;

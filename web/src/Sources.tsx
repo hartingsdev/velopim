@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { deleteUsagePolicy, saveUsagePolicy, type FieldGroup, type Policy, type UsagePolicyList } from "./api";
+import { deleteUsagePolicy, saveUsagePolicy, type FieldGroup, type Policy, type SourceConfig, type UsagePolicyList } from "./api";
+import { SourceEditor } from "./SourceEditor";
 
 interface Props {
   list: UsagePolicyList;
+  sources: SourceConfig[];
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }
@@ -33,7 +35,7 @@ function PolicySelect(props: { value: Policy; onChange: (p: Policy) => void; lab
 }
 
 /** What may be used from each supplier's data, per field group and brand. */
-export function Sources({ list, onChanged, onError }: Props) {
+export function Sources({ list, sources, onChanged, onError }: Props) {
   async function run(action: () => Promise<void>) {
     try {
       await action();
@@ -54,6 +56,12 @@ export function Sources({ list, onChanged, onError }: Props) {
         sie nicht.
       </p>
       {list.sources.length === 0 && <p className="empty">Noch kein Lieferant eingerichtet.</p>}
+      <details className="task">
+        <summary>
+          <strong>Neuen Lieferanten anlegen</strong>
+        </summary>
+        <SourceEditor source={null} onSaved={onChanged} />
+      </details>
       {list.sources.map((source) => {
         const own = list.policies.filter((p) => p.source_id === source.id);
         const general = (g: FieldGroup): Policy => own.find((p) => p.brand === "" && p.field_group === g)?.policy ?? "use";
@@ -107,6 +115,10 @@ export function Sources({ list, onChanged, onError }: Props) {
               </table>
             </div>
             <ExceptionForm sourceID={source.id} onSave={(p) => run(() => saveUsagePolicy(p))} />
+            <details className="source-settings">
+              <summary>Datei-Einstellungen (Spalten, Zeichensatz, Verfügbarkeit)</summary>
+              <SourceEditor source={sources.find((s) => s.id === source.id) ?? null} onSaved={onChanged} />
+            </details>
           </section>
         );
       })}

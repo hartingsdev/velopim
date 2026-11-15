@@ -5,6 +5,7 @@ import {
   listImportRuns,
   listPricingRules,
   listRules,
+  listSources,
   listProducts,
   listTasks,
   listUsagePolicies,
@@ -14,6 +15,7 @@ import {
   type ProductDetail as ProductDetailData,
   type ProductList,
   type RuleList,
+  type SourceConfig,
   type SyncPlan,
   type TaskList,
   type UsagePolicyList,
@@ -36,7 +38,7 @@ type Data =
   | { view: "pricing"; rules: PricingRule[] }
   | { view: "rules"; list: RuleList }
   | { view: "product"; detail: ProductDetailData }
-  | { view: "sources"; list: UsagePolicyList }
+  | { view: "sources"; list: UsagePolicyList; sources: SourceConfig[] }
   | { view: "sync"; plan: SyncPlan }
   | { view: "search"; results: SearchResults };
 
@@ -53,7 +55,7 @@ async function fetchData({ view, params }: Route): Promise<Data> {
     case "product":
       return { view, detail: await getProduct(params.id ?? "") };
     case "sources":
-      return { view, list: await listUsagePolicies() };
+      return { view, list: await listUsagePolicies(), sources: await listSources() };
     case "sync":
       return { view, plan: await getSyncPlan() };
     case "search": {
@@ -169,7 +171,9 @@ export function App() {
         {current?.view === "product" && (
           <ProductDetail key={key} detail={current.detail} onChanged={load} onError={setError} />
         )}
-        {current?.view === "sources" && <Sources list={current.list} onChanged={load} onError={setError} />}
+        {current?.view === "sources" && (
+          <Sources list={current.list} sources={current.sources} onChanged={load} onError={setError} />
+        )}
         {current?.view === "sync" && <Sync plan={current.plan} onChanged={load} onError={setError} />}
         {current?.view === "search" && <Search results={current.results} />}
       </main>

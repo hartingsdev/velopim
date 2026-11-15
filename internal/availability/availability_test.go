@@ -93,3 +93,29 @@ func TestDerive(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRules(t *testing.T) {
+	one, two := 1, 2
+	cases := []struct {
+		name  string
+		rule  MappingRule
+		valid bool
+	}{
+		{"plain rule", MappingRule{Name: "x", Status: InStock, When: []Condition{{Field: "Bestand", Op: GT, Value: "0"}}}, true},
+		{"no conditions", MappingRule{Name: "rest", Status: Unavailable}, true},
+		{"with date", MappingRule{Status: Preorder, DateField: "Termin", DateLayout: "02.01.2006"}, true},
+		{"lead time", MappingRule{Status: Orderable, LeadMinDays: &one, LeadMaxDays: &two}, true},
+		{"unknown status", MappingRule{Status: "soon"}, false},
+		{"status unknown is not a target", MappingRule{Status: Unknown}, false},
+		{"unknown operator", MappingRule{Status: InStock, When: []Condition{{Field: "a", Op: "like"}}}, false},
+		{"condition without field", MappingRule{Status: InStock, When: []Condition{{Op: Empty}}}, false},
+		{"numeric operator without number", MappingRule{Status: InStock, When: []Condition{{Field: "a", Op: GT, Value: "viel"}}}, false},
+		{"lead time reversed", MappingRule{Status: Orderable, LeadMinDays: &two, LeadMaxDays: &one}, false},
+		{"date field without layout", MappingRule{Status: Preorder, DateField: "Termin"}, false},
+	}
+	for _, c := range cases {
+		if err := ValidateRules([]MappingRule{c.rule}); (err == nil) != c.valid {
+			t.Errorf("%s: ValidateRules = %v, want valid=%v", c.name, err, c.valid)
+		}
+	}
+}

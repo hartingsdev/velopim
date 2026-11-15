@@ -893,3 +893,71 @@ func TestResplit(t *testing.T) {
 		t.Error("can_resplit must be false once the model is in Shopify")
 	}
 }
+
+func TestSources(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester", nil, WithRawDir(t.TempDir()))
+	const jsonType = "application/json"
+	valid := `{"name":"Hartje","connector_config":{"delimiter":";","decimal_comma":true,"encoding":"windows-1252",
+		"columns":{"sku":"Artikelnummer","name":"Bezeichnung","brand":"Marke","cost":"EK"},"attribute_columns":["Antrieb"]},
+		"availability_mapping":[{"name":"auf Lager","when":[{"field":"Bestand","op":"gt","value":"0"}],"status":"in_stock","quantity_field":"Bestand"},
+		{"name":"sonst","when":[],"status":"unavailable"}]}`
+	cases := []struct {
+		name, id, body string
+		want           int
+	}{
+		{"bad id", "Hartje GmbH", valid, http.StatusUnprocessableEntity},
+		{"no name", "hartje", `{"name":"","connector_config":{"delimiter":";","columns":{"sku":"Nr"}}}`, http.StatusUnprocessableEntity},
+		{"no article number column", "hartje", `{"name":"Hartje","connector_config":{"delimiter":";","columns":{"name":"Bezeichnung"}}}`, http.StatusUnprocessableEntity},
+		{"delimiter too long", "hartje", `{"name":"Hartje","connector_config":{"delimiter":";;","columns":{"sku":"Nr"}}}`, http.StatusUnprocessableEntity},
+		{"unknown availability status", "hartje", `{"name":"Hartje","connector_config":{"delimiter":";","columns":{"sku":"Nr"}},
+			"availability_mapping":[{"name":"x","status":"bald"}]}`, http.StatusUnprocessableEntity},
+		{"valid", "hartje", valid, http.StatusNoContent},
+		{"change it", "hartje", strings.Replace(valid, `"name":"Hartje"`, `"name":"Hartje GmbH"`, 1), http.StatusNoContent},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "PUT", "/api/sources/"+strings.ReplaceAll(c.id, " ", "%20"), jsonType, c.body); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+	var list struct {
+		Sources []SourceConfig `json:"sources"`
+	}
+	rec := do(t, h, "GET", "/api/sources", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Sources) != 1 {
+		t.Fatalf("sources: %+v", list.Sources)
+	}
+	src := list.Sources[0]
+	if src.ID != "hartje" || src.Name != "Hartje GmbH" || src.Config.Encoding != "windows-1252" || src.Config.Columns["sku"] != "Artikelnummer" ||
+		len(src.AvailabilityMapping) != 2 || src.AvailabilityMapping[0].Status != "in_stock" {
+		t.Errorf("stored source: %+v", src)
+	}
+
+	// The stored configuration imports a Windows-1252 file through the upload.
+	file := "Artikelnummer;Bezeichnung;Marke;EK;Bestand;Antrieb\n1;Tourenrad Gr\xf6\xdfe L;Beispielrad;500,00;3;Kette\n"
+	rec = do(t, h, "POST", "/api/sources/hartje/imports", "application/octet-stream", file)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import with the stored configuration: %d %s", rec.Code, rec.Body)
+	}
+	var name, status string
+	if err := pool.QueryRow(context.Background(), `SELECT name, availability_status FROM supplier_item WHERE sku = '1'`).Scan(&name, &status); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Tourenrad Größe L" || status != "in_stock" {
+		t.Errorf("imported article: %q %s", name, status)
+	}
+
+	// Preview: columns, first rows, detected separator and encoding.
+	rec = do(t, h, "POST", "/api/csv-preview", "application/octet-stream", file)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `"delimiter":";"`) || !strings.Contains(body, `"encoding":"windows-1252"`) ||
+		!strings.Contains(body, `"columns":["Artikelnummer","Bezeichnung","Marke","EK","Bestand","Antrieb"]`) || !strings.Contains(body, "Tourenrad Größe L") {
+		t.Errorf("preview: %d %s", rec.Code, body)
+	}
+	if rec := do(t, h, "POST", "/api/csv-preview", jsonType, file); rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("preview with the wrong content type: %d", rec.Code)
+	}
+}

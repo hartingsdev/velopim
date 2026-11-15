@@ -494,6 +494,44 @@ func (q *Queries) ListPricingRules(ctx context.Context) ([]ListPricingRulesRow, 
 	return items, nil
 }
 
+const listSourcesFull = `-- name: ListSourcesFull :many
+SELECT id, name, connector_kind, connector_config, availability_mapping FROM source ORDER BY name
+`
+
+type ListSourcesFullRow struct {
+	ID                  string
+	Name                string
+	ConnectorKind       string
+	ConnectorConfig     []byte
+	AvailabilityMapping []byte
+}
+
+func (q *Queries) ListSourcesFull(ctx context.Context) ([]ListSourcesFullRow, error) {
+	rows, err := q.db.Query(ctx, listSourcesFull)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSourcesFullRow
+	for rows.Next() {
+		var i ListSourcesFullRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ConnectorKind,
+			&i.ConnectorConfig,
+			&i.AvailabilityMapping,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSupplierItems = `-- name: ListSupplierItems :many
 SELECT s.id, s.active, s.raw_record_id, coalesce(r.content_hash, '')::text AS raw_hash,
        s.sku, s.ean, s.mpn, s.brand, s.name, s.model_year, s.category, s.color, s.frame_size,
@@ -699,6 +737,32 @@ func (q *Queries) UpdateSupplierItem(ctx context.Context, arg UpdateSupplierItem
 		arg.AvailabilityStatus,
 		arg.RawRecordID,
 		arg.LastImportRunID,
+	)
+	return err
+}
+
+const upsertSource = `-- name: UpsertSource :exec
+INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, connector_kind = EXCLUDED.connector_kind,
+    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping
+`
+
+type UpsertSourceParams struct {
+	ID                  string
+	Name                string
+	ConnectorKind       string
+	ConnectorConfig     []byte
+	AvailabilityMapping []byte
+}
+
+func (q *Queries) UpsertSource(ctx context.Context, arg UpsertSourceParams) error {
+	_, err := q.db.Exec(ctx, upsertSource,
+		arg.ID,
+		arg.Name,
+		arg.ConnectorKind,
+		arg.ConnectorConfig,
+		arg.AvailabilityMapping,
 	)
 	return err
 }
