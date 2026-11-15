@@ -41,8 +41,8 @@
 - Vor jedem Commit: `gofmt -l .` und `go vet ./...` müssen sauber sein.
 
 ## Stand
-Fertig und getestet: Regel-Engine (`rules`), Preiskalkulation (`pricing`), Verfügbarkeit (`availability`), CSV-Konnektor (`connector/csvfile`), Änderungserkennung (`actions`), Shopify-Projektion und Diff (`shopify`), Datenbankschema, Import-Pipeline (`importer`), Task-Entscheidung (`tasks`), HTTP-API für Tasks und Importläufe (`api`), Import-Befehl im Binary, React-Oberfläche mit Taskliste (Freigeben/Ablehnen), erledigten Aufgaben und Importläufen.
-Noch nicht begonnen: Variantengruppierung und eigener Katalog (Produkt/Variante aus Lieferantenartikeln), Übernahme freigegebener Aktionen in den Katalog, Nutzungsrichtlinie in der Pipeline, Shopify-API-Client, Produktansicht, Pflege von Regeln und Quellen in der Oberfläche, River-Jobs.
+Fertig und getestet: Regel-Engine (`rules`), Preiskalkulation (`pricing`), Verfügbarkeit (`availability`), CSV-Konnektor (`connector/csvfile`), Änderungserkennung (`actions`), Shopify-Projektion und Diff (`shopify`), Datenbankschema, Import-Pipeline (`importer`), Task-Entscheidung (`tasks`), Variantengruppierung als reine Funktion (`catalog.Group`, noch nicht an Datenbank und Pipeline angebunden), HTTP-API für Tasks und Importläufe (`api`), Import-Befehl im Binary, React-Oberfläche mit Taskliste (Freigeben/Ablehnen), erledigten Aufgaben und Importläufen.
+Noch nicht begonnen: eigener Katalog in der Datenbank (Produkt/Variante aus der Gruppierung anlegen, Trennmerkmale speichern), Übernahme freigegebener Aktionen in den Katalog, Nutzungsrichtlinie in der Pipeline, Shopify-API-Client, Produktansicht, Pflege von Regeln und Quellen in der Oberfläche, River-Jobs.
 
 ## Geplante Struktur
 ```
@@ -106,6 +106,7 @@ testdata/           Beispiel-Lieferantendaten
 | 18 | Preisänderungen gehen vorerst immer zur Freigabe, keine `auto`-Regeln für `price_change` anlegen. Senkt der Lieferant seinen Einkaufspreis um X €, enthält der Vorschlag den eigenen Verkaufspreis minus X € (betragsgleich, keine Neukalkulation per Aufschlag). Automatische Übernahme soll später je Regel zuschaltbar sein | Vorgabe des Betreibers. Folge: Kalkulation setzt den Verkaufspreis beim Anlegen, danach folgt er den Senkungen. Umsetzung erst mit dem eigenen Katalog, vorher gibt es keinen Verkaufspreis |
 | 19 | API-Typen in `web/src/api.ts` von Hand gepflegt, passend zu `internal/api/api.go`. **Vorläufig, ohne Betreiber entschieden** | Vier Endpunkte rechtfertigen keine OpenAPI-Kette; bei wachsender API neu bewerten |
 | 20 | Kein Login: Server lauscht nur auf localhost, schreibende Anfragen müssen JSON sein. **Vorläufig** | Ein Nutzer, lokaler Betrieb. Vor jedem Betrieb im Netz braucht es eine Anmeldung |
+| 21 | Produktschnitt je Modell einstellbar: Standard ist ein Produkt pro Modell und Modelljahr mit Farbe und Rahmenhöhe als Optionen; je Modell können beliebige Merkmale (Farbe, Rahmenhöhe, Lieferantenattribute wie Rahmenform oder Antrieb) als Trennmerkmale Produkte trennen, die übrigen werden Optionen (Vorgabe des Betreibers) | Rahmenform oder Antrieb trennen im Fahrradhandel oft sinnvoller als Farbe. Umstellen nach dem ersten Sync legt Shopify-Produkte neu an (neue URLs) und soll deshalb einen Task mit Warnung erzeugen |
 
 ## MVP-Umfang
 Hartje-Konnektor über Dateiimport mit Rohdatenablage · Normalisierung und Variantengruppierung · Nutzungsrichtlinie · Preiskalkulation · Regel-Engine (Neuprodukt, Preis, Statuswechsel Verfügbarkeit) · Taskliste mit Freigabe/Ablehnung · Produktansicht mit Feldherkunft und internen Notizen · Auswahl „in den Store“ · Shopify-Sync (Produkt, Varianten, Preise, Bilder, Lieferzeit-Metafeld) im Dry-Run und gegen den Development-Store.
@@ -114,7 +115,7 @@ Später: Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand 
 
 ## Offene Punkte
 - Hartje-Zugang und Datenformat unbekannt (CSV/BMEcat-Feed, veloconnect, API?). Keine Annahmen treffen; bis zur Klärung Dateischnittstelle mit Testdaten.
-- Wie Hartje Varianten liefert (flach oder Eltern-Kind) und wie Produkte in Shopify geschnitten werden (pro Modell oder pro Farbe).
+- Wie Hartje Varianten liefert (flach oder Eltern-Kind) und ob Modellname, Farbe und Rahmenform sauber genug für die Gruppierung sind. Die Gruppierung vergleicht Werte bisher exakt (nur Leerzeichen am Rand entfernt).
 - Development-Store und API-Token fehlen noch.
 - Wie das Theme die Lieferzeit anzeigt (Metafeld-Namespace und -Key).
 - Erstimport eines ganzen Katalogs erzeugt pro Artikel einen Task „Neues Produkt prüfen“. Die Taskliste zeigt höchstens 200 Einträge; es fehlen Sammelfreigabe, Filter oder eine Regel für Neuprodukte.
