@@ -44,6 +44,10 @@ func TestLiveProductSet(t *testing.T) {
 		t.Errorf("created: status %s, available %v", created.Status, created.AvailableForSale)
 	}
 
+	if visible, err := c.PublishedInOnlineStore(ctx, created.ProductID); err != nil || visible {
+		t.Errorf("draft published in online store = %v, err %v", visible, err)
+	}
+
 	// The same input again changes nothing and creates no second product.
 	again, err := c.SetProduct(ctx, p, created.ProductID, nil)
 	if err != nil {
@@ -64,6 +68,11 @@ func TestLiveProductSet(t *testing.T) {
 	if changed.Status != "ACTIVE" || changed.AvailableForSale["LIVE-1"] || !changed.AvailableForSale["LIVE-2"] || len(changed.VariantIDs) != 3 ||
 		changed.VariantIDs["LIVE-1"] != created.VariantIDs["LIVE-1"] {
 		t.Errorf("changed: status %s, available %v, variants %v", changed.Status, changed.AvailableForSale, changed.VariantIDs)
+	}
+
+	// An active product is visible in the online store's sales channel.
+	if visible, err := c.PublishedInOnlineStore(ctx, created.ProductID); err != nil || !visible {
+		t.Errorf("published in online store = %v, err %v", visible, err)
 	}
 
 	// A variant missing from the input is removed.

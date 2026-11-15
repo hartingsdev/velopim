@@ -44,6 +44,7 @@ type Client struct {
 	scopes       []string
 	devStore     *bool // cached answer to "is this a development store?"
 	location     string
+	onlineStore  string // publication id of the online store channel
 }
 
 // NewClient validates the configuration. It makes no request.

@@ -11,7 +11,7 @@ velopim schreibt nie in den Live-Shop. Zum Testen braucht es einen eigenen Devel
 
 ## 2. App anlegen und installieren
 1. Im Dev Dashboard unter **Apps** eine App anlegen.
-2. In der App-Version die Zugriffsrechte (Access scopes) wählen: `read_products`, `write_products`, `read_inventory`, `write_inventory`, `read_locations`.
+2. In der App-Version die Zugriffsrechte (Access scopes) wählen: `read_products`, `write_products`, `read_inventory`, `write_inventory`, `read_locations`, `write_publications` (für die Veröffentlichung im Kanal „Onlineshop“).
 3. Die App im Development-Store installieren.
 
 ## 3. Zugangsdaten eintragen

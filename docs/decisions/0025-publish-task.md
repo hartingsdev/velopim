@@ -13,4 +13,4 @@ Der Sync legt ein neues Produkt in Shopify als Entwurf an. Dazu entsteht ein Tas
 - **Entwurf ohne Task:** Entwürfe bleiben liegen.
 
 ## Folgen
-Der Task enthält den Link zum Produkt in der Shopify-Verwaltung; von dort führt „Vorschau“ in den Shop. Freigeben setzt das Produkt in velopim aktiv, die nächste Übertragung setzt es in Shopify aktiv. Siehe [29](0029-shopify-sync.md) zur Einschränkung bei den Vertriebskanälen. Der Status (Entwurf/aktiv) wird damit ein Feld, das velopim besitzt ([7](0007-field-ownership.md)).
+Der Task enthält den Link zum Produkt in der Shopify-Verwaltung; von dort führt „Vorschau“ in den Shop. Freigeben setzt das Produkt in velopim aktiv, die nächste Übertragung setzt es in Shopify aktiv und veröffentlicht es im Kanal „Onlineshop“ ([29](0029-shopify-sync.md)). Der Status (Entwurf/aktiv) wird damit ein Feld, das velopim besitzt ([7](0007-field-ownership.md)).

@@ -19,7 +19,7 @@
 | Produktansicht je Modell: Name, Beschreibung und Preise bearbeiten, Trennung im Shop ändern (solange nicht in Shopify), „in den Store“ auswählen, interne Notizen, Herkunft und Verlauf jedes Feldes | `api`, `web` |
 | Lieferanten anlegen und einrichten: Spaltenzuordnung, Trennzeichen, Zeichensatz, Verfügbarkeitsregeln als Formular; Vorschau einer Beispieldatei zum Erkennen der Spalten | `api`, `web` |
 | Nutzungsrichtlinie je Lieferant, Marke und Datengruppe, gepflegt im Reiter „Lieferanten“ | `catalog`, `importer`, `api`, `web` |
-| Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Bilder werden behalten statt neu geladen, Veröffentlichen-Task, Fehler-Task; automatisch per Job nach Import, Freigabe und Produktänderung, dazu `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
+| Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Bilder werden behalten statt neu geladen, Veröffentlichen-Task, Veröffentlichung aktiver Produkte im Kanal „Onlineshop“, Fehler-Task; automatisch per Job nach Import, Freigabe und Produktänderung, dazu `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
 | Abholen per Job: Datei von einer Adresse laden (mit Anmeldung über Umgebungsvariablen), zeitgesteuert oder auf Knopfdruck; Fehler als Aufgabe | `fetch`, `jobs`, `api`, `web` |
 | Hintergrundjobs mit River: Abrufe einplanen und ausführen, Shopify-Sync im festen Abstand | `jobs` |
@@ -34,7 +34,6 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 
 ## Noch nicht begonnen
 - Bilder und Varianten von Hand bearbeiten; Trennung eines Modells ändern, das schon in Shopify ist
-- Veröffentlichung im Vertriebskanal „Onlineshop“ (braucht das Recht `write_publications`)
 - Matching bestehender Shopify-Produkte
 - Andere Formate als CSV und Abruf über eine API mit mehreren Aufrufen (BMEcat, veloconnect)
 - Hartje einrichten (Format unbekannt). Liefert Hartje eine CSV-Datei, geht das ohne Code im Reiter „Lieferanten“

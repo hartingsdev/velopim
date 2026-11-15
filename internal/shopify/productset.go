@@ -223,7 +223,115 @@ func (c *Client) SetProduct(ctx context.Context, p Product, shopifyID string, me
 	for _, m := range prod.Media.Nodes {
 		res.MediaIDs = append(res.MediaIDs, m.ID)
 	}
+	// An active product is only visible to customers once it is published
+	// in the online store's sales channel. If that fails the whole call
+	// fails, so the sync tries again instead of recording a product nobody
+	// can see as done.
+	if p.Published {
+		if err := c.publishToOnlineStore(ctx, prod.ID); err != nil {
+			return SetResult{}, err
+		}
+	}
 	return res, nil
+}
+
+// onlineStoreHandle is the handle of the sales channel "Onlineshop".
+const onlineStoreHandle = "online_store"
+
+// ErrNoOnlineStore means the store has no online store sales channel the
+// app can see; without the right read_publications Shopify hides them all.
+var ErrNoOnlineStore = errors.New("shopify: sales channel \"Online Store\" not found (does the app have the right write_publications?)")
+
+// publishToOnlineStore makes the product visible in the online store.
+// Publishing a product that is already published changes nothing. A product
+// set back to draft is not unpublished: a draft is not visible anyway, and
+// it reappears when it becomes active again.
+func (c *Client) publishToOnlineStore(ctx context.Context, shopifyID string) error {
+	publicationID, err := c.onlineStorePublicationID(ctx)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		PublishablePublish struct {
+			UserErrors []struct {
+				Message string `json:"message"`
+			} `json:"userErrors"`
+		} `json:"publishablePublish"`
+	}
+	err = c.Mutate(ctx, `mutation velopimPublish($id: ID!, $publication: ID!) {
+  publishablePublish(id: $id, input: [{publicationId: $publication}]) { userErrors { field message } }
+}`, map[string]any{"id": shopifyID, "publication": publicationID}, &out)
+	if err != nil {
+		return fmt.Errorf("publish in online store: %w", err)
+	}
+	if len(out.PublishablePublish.UserErrors) > 0 {
+		e := &UserError{}
+		for _, ue := range out.PublishablePublish.UserErrors {
+			e.Messages = append(e.Messages, "publish in online store: "+ue.Message)
+		}
+		return e
+	}
+	return nil
+}
+
+// onlineStorePublicationID finds the publication of the online store
+// channel; the id is remembered for the life of the client.
+func (c *Client) onlineStorePublicationID(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	cached := c.onlineStore
+	c.mu.Unlock()
+	if cached != "" {
+		return cached, nil
+	}
+	var out struct {
+		Publications struct {
+			Nodes []struct {
+				ID       string `json:"id"`
+				Channels struct {
+					Nodes []struct {
+						Handle string `json:"handle"`
+					} `json:"nodes"`
+				} `json:"channels"`
+			} `json:"nodes"`
+		} `json:"publications"`
+	}
+	if err := c.Query(ctx, `query { publications(first: 50) { nodes { id channels(first: 10) { nodes { handle } } } } }`, nil, &out); err != nil {
+		return "", err
+	}
+	for _, pub := range out.Publications.Nodes {
+		for _, ch := range pub.Channels.Nodes {
+			if ch.Handle == onlineStoreHandle {
+				c.mu.Lock()
+				c.onlineStore = pub.ID
+				c.mu.Unlock()
+				return pub.ID, nil
+			}
+		}
+	}
+	return "", ErrNoOnlineStore
+}
+
+// PublishedInOnlineStore reports whether customers can see the product in
+// the online store's sales channel.
+func (c *Client) PublishedInOnlineStore(ctx context.Context, shopifyID string) (bool, error) {
+	publicationID, err := c.onlineStorePublicationID(ctx)
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		Product *struct {
+			Published bool `json:"publishedOnPublication"`
+		} `json:"product"`
+	}
+	err = c.Query(ctx, `query($id: ID!, $publication: ID!) { product(id: $id) { publishedOnPublication(publicationId: $publication) } }`,
+		map[string]any{"id": shopifyID, "publication": publicationID}, &out)
+	if err != nil {
+		return false, err
+	}
+	if out.Product == nil {
+		return false, errors.New("shopify: product not found")
+	}
+	return out.Product.Published, nil
 }
 
 // DeleteProduct removes a product from Shopify.

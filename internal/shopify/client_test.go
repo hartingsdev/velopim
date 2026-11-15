@@ -161,3 +161,58 @@ func TestGraphQLErrorIsNotRetried(t *testing.T) {
 		t.Errorf("err = %v after %d calls; want a GraphQLError after 1", err, calls.Load())
 	}
 }
+
+func TestSetProductPublishesActiveProducts(t *testing.T) {
+	ctx := context.Background()
+	product := `{"data":{"productSet":{"product":{"id":"gid://shopify/Product/1","legacyResourceId":"1","handle":"h","status":"ACTIVE",
+		"variants":{"nodes":[]},"media":{"nodes":[]}},"userErrors":[]}}}`
+	publications := `{"data":{"publications":{"nodes":[
+		{"id":"gid://shopify/Publication/7","channels":{"nodes":[{"handle":"pos"}]}},
+		{"id":"gid://shopify/Publication/8","channels":{"nodes":[{"handle":"online_store"}]}}]}}}`
+
+	for _, tc := range []struct {
+		name         string
+		published    bool
+		publications string
+		publishReply string
+		wantPublish  int
+		wantErr      bool
+	}{
+		{name: "draft is not published", published: false, publications: publications},
+		{name: "active is published", published: true, publications: publications,
+			publishReply: `{"data":{"publishablePublish":{"userErrors":[]}}}`, wantPublish: 1},
+		{name: "refused publishing fails the call", published: true, publications: publications,
+			publishReply: `{"data":{"publishablePublish":{"userErrors":[{"message":"nope"}]}}}`, wantPublish: 1, wantErr: true},
+		{name: "no online store channel", published: true, publications: `{"data":{"publications":{"nodes":[]}}}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			publishes := 0
+			c, _, _ := fakeShopify(t, Config{WriteEnabled: true}, func(query string, w http.ResponseWriter) {
+				switch {
+				case strings.Contains(query, "publishablePublish"):
+					publishes++
+					if !strings.Contains(query, "publicationId: $publication") {
+						t.Errorf("publish does not name the publication: %s", query)
+					}
+					_, _ = io.WriteString(w, tc.publishReply)
+				case strings.Contains(query, "productSet"):
+					_, _ = io.WriteString(w, product)
+				case strings.Contains(query, "publications"):
+					_, _ = io.WriteString(w, tc.publications)
+				case strings.Contains(query, "locations"):
+					_, _ = io.WriteString(w, `{"data":{"locations":{"nodes":[{"id":"gid://shopify/Location/1"}]}}}`)
+				default:
+					_, _ = io.WriteString(w, shopAnswer(true, "test-dev.myshopify.com"))
+				}
+			})
+			p := Product{Title: "Rad", Published: tc.published, Variants: []Variant{{SKU: "1", PriceCents: 100, Sellable: true}}}
+			_, err := c.SetProduct(ctx, p, "", nil)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, want error: %v", err, tc.wantErr)
+			}
+			if publishes != tc.wantPublish {
+				t.Errorf("publish calls = %d, want %d", publishes, tc.wantPublish)
+			}
+		})
+	}
+}
