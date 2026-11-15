@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"velopim/internal/db"
+	"velopim/internal/notify"
 	"velopim/internal/shopify"
 	"velopim/internal/shopsync"
 )
@@ -62,6 +63,32 @@ func (SyncArgs) Kind() string { return "shopify_sync" }
 // trigger. A sync with nothing to send only reads the plan and is cheap.
 func (SyncArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{MaxAttempts: 1}
+}
+
+// DigestArgs sends the daily mail about open tasks.
+type DigestArgs struct{}
+
+func (DigestArgs) Kind() string { return "task_digest" }
+
+// InsertOpts: no retries. A mail that could not be sent today is not sent
+// twice tomorrow.
+func (DigestArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 1} }
+
+type digestWorker struct {
+	river.WorkerDefaults[DigestArgs]
+	pool *pgxpool.Pool
+	mail notify.Config
+}
+
+func (w *digestWorker) Work(ctx context.Context, _ *river.Job[DigestArgs]) error {
+	sent, err := notify.SendDigest(ctx, w.pool, w.mail)
+	if err != nil {
+		return err
+	}
+	if sent {
+		log.Printf("daily mail sent to %d recipients", len(w.mail.To))
+	}
+	return nil
 }
 
 // syncDelay lets a burst of approvals or a whole import finish before the
@@ -146,6 +173,8 @@ type Config struct {
 	// SyncInterval runs the Shopify sync periodically; zero means only on
 	// request.
 	SyncInterval time.Duration
+	// Mail enables the daily mail about open tasks; nil sends none.
+	Mail *notify.Config
 }
 
 // Queue runs the background jobs.
@@ -184,6 +213,14 @@ func New(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
 			periodic = append(periodic, river.NewPeriodicJob(river.PeriodicInterval(cfg.SyncInterval),
 				func() (river.JobArgs, *river.InsertOpts) { return SyncArgs{}, nil }, nil))
 		}
+	}
+
+	if cfg.Mail != nil {
+		river.AddWorker(workers, &digestWorker{pool: pool, mail: *cfg.Mail})
+		// Config.Next gives the next daily time; no run at start, or every
+		// restart of the server would send a mail.
+		periodic = append(periodic, river.NewPeriodicJob(*cfg.Mail,
+			func() (river.JobArgs, *river.InsertOpts) { return DigestArgs{}, nil }, nil))
 	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{

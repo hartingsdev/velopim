@@ -660,3 +660,26 @@ details.task > summary {
 code {
   font-size: 0.85em;
 }
+
+.snooze {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.snooze summary {
+  cursor: pointer;
+}
+
+.snooze .condition {
+  margin: 0.4rem 0 0;
+}
+
+.snooze .condition input {
+  width: auto;
+  text-align: left;
+}
+
+.snooze button {
+  font-size: 0.875rem;
+}

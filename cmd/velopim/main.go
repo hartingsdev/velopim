@@ -3,6 +3,7 @@
 //	velopim serve                    start the web server (default)
 //	velopim import <source> <file>   import one supplier delivery
 //	velopim sync                     send pending changes to Shopify
+//	velopim digest                   send the mail about open tasks now
 //	velopim shopify-check            test the Shopify connection (read only)
 package main
 
@@ -25,6 +26,7 @@ import (
 	"velopim/internal/db"
 	"velopim/internal/importer"
 	"velopim/internal/jobs"
+	"velopim/internal/notify"
 	"velopim/internal/shopify"
 	"velopim/internal/shopsync"
 	"velopim/web"
@@ -54,8 +56,10 @@ func main() {
 		err = shopifyCheck(ctx)
 	case "sync":
 		err = runSync(ctx)
+	case "digest":
+		err = sendDigest(ctx)
 	default:
-		err = fmt.Errorf("unknown command %q (serve, import, sync, shopify-check)", cmd)
+		err = fmt.Errorf("unknown command %q (serve, import, sync, digest, shopify-check)", cmd)
 	}
 	if err != nil {
 		log.Fatalf("velopim: %v", err)
@@ -125,7 +129,16 @@ func serve(ctx context.Context) error {
 	if err := jobs.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("job queue tables: %w", err)
 	}
+	// Daily mail about open tasks, when a mail server is configured.
+	var mailConfig *notify.Config
+	if cfg, ok, err := notify.FromEnv(os.Getenv); err != nil {
+		return err
+	} else if ok {
+		mailConfig = &cfg
+		log.Printf("daily mail at %02d:%02d to %d recipients", cfg.Hour, cfg.Minute, len(cfg.To))
+	}
 	queue, err := jobs.New(pool, jobs.Config{
+		Mail:         mailConfig,
 		Fetcher:      &jobs.Fetcher{Pool: pool, RawDir: rawDir(), Getenv: os.Getenv},
 		Store:        store,
 		SyncOnChange: shopifyConfig().WriteEnabled,
@@ -191,6 +204,32 @@ func shopifyCheck(ctx context.Context) error {
 		shop.Name, shop.Domain, shop.PlanName, shop.DevStore, strings.Join(scopes, ", "), cfg.WriteEnabled)
 	if !shop.DevStore {
 		fmt.Println("Achtung: Shopify meldet keinen Development-Store. velopim schreibt nicht in diesen Store.")
+	}
+	return nil
+}
+
+// sendDigest sends the mail about open tasks now, to try the mail settings.
+func sendDigest(ctx context.Context) error {
+	cfg, ok, err := notify.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("no mail server configured (VELOPIM_SMTP_HOST, see .env.example)")
+	}
+	pool, err := openDB(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	sent, err := notify.SendDigest(ctx, pool, cfg)
+	if err != nil {
+		return err
+	}
+	if sent {
+		fmt.Printf("Mail gesendet an %s\n", strings.Join(cfg.To, ", "))
+	} else {
+		fmt.Println("Keine offenen Aufgaben, keine Mail gesendet.")
 	}
 	return nil
 }

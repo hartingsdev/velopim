@@ -17,7 +17,7 @@ Tests sind Pflicht für Regel-Engine, Mappings und Normalisierung, Preiskalkulat
 
 ## Aufbau
 ```
-cmd/velopim/             Einstiegspunkt: serve, import, sync, shopify-check
+cmd/velopim/             Einstiegspunkt: serve, import, sync, digest, shopify-check
 internal/connector/      Konnektor-Schnittstelle, Rohdatensatz, Lieferantenartikel
 internal/connector/csvfile/  konfigurierbarer CSV-Konnektor
 internal/availability/   Verfügbarkeitsmodell, Mapping aus Rohdaten, Anzeige
@@ -30,7 +30,8 @@ internal/catalog/        Gruppierung zu Produkten, Anlegen von Produkten und Var
 internal/shopify/        Projektion, Diff, Client für die Admin-API
 internal/shopsync/       Sync: Plan und Übertragung je Produkt
 internal/fetch/          Datei eines Lieferanten von einer Adresse laden
-internal/jobs/           Hintergrundjobs (River): Abrufe einplanen und ausführen, Shopify-Sync
+internal/jobs/           Hintergrundjobs (River): Abrufe einplanen und ausführen, Shopify-Sync, tägliche Mail
+internal/notify/         tägliche Mail über offene Aufgaben
 cmd/introspect/          Entwicklungshilfe: Typen der Admin-API des Stores anzeigen (nur lesend)
 internal/api/            HTTP-Handler
 internal/db/             von sqlc generiert, nicht von Hand ändern
@@ -64,7 +65,8 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | Methode und Pfad | Zweck |
 |---|---|
 | `GET /api/health` | Lebenszeichen |
-| `GET /api/tasks?status=open\|closed&category=…&q=…` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells, Zählern gesamt und je Kategorie. Kategorien: `price`, `new_model`, `availability`, `removed`, `content`, `import`, `other`. `q` sucht in Titel, Artikelnummern und EANs |
+| `POST /api/tasks/{id}/snooze` | Wiedervorlage: `{"until": "2027-01-31"}` stellt zurück, `{"until": null}` legt wieder vor; 409, wenn die Aufgabe nicht offen ist |
+| `GET /api/tasks?status=open\|snoozed\|closed&category=…&q=…` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells, Zählern gesamt und je Kategorie. Kategorien: `price`, `new_model`, `availability`, `removed`, `content`, `import`, `other`. `q` sucht in Titel, Artikelnummern und EANs |
 | `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}` plus Korrekturen: `split_by`, `variant_prices`, `price_cents`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
 | `GET /api/sources`, `PUT /api/sources/{id}` | Lieferanten mit CSV-Einstellungen, Verfügbarkeitsregeln und Abruf-Einstellung lesen, anlegen, ändern; 422 mit Grund bei ungültiger Einstellung |

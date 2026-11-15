@@ -1073,3 +1073,72 @@ func TestChangesQueueASync(t *testing.T) {
 		}
 	}
 }
+
+func TestSnooze(t *testing.T) {
+	pool := dbtest.New(t)
+	approval, plain := seed(t, pool) // price task (priority 1) and data issue task
+	h := New(pool, "tester", nil)
+	const jsonType = "application/json"
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	path := "/api/tasks/" + strconv.FormatInt(approval, 10) + "/snooze"
+
+	cases := []struct {
+		name, path, body string
+		want             int
+	}{
+		{"not a date", path, `{"until":"morgen"}`, http.StatusUnprocessableEntity},
+		{"today is not the future", path, `{"until":"` + time.Now().Format("2006-01-02") + `"}`, http.StatusUnprocessableEntity},
+		{"past", path, `{"until":"2020-01-01"}`, http.StatusUnprocessableEntity},
+		{"unknown task", "/api/tasks/999/snooze", `{"until":"` + tomorrow + `"}`, http.StatusConflict},
+		{"tomorrow", path, `{"until":"` + tomorrow + `"}`, http.StatusNoContent},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "POST", c.path, jsonType, c.body); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+
+	// The task left the open list and sits under Wiedervorlage.
+	open := getTasks(t, h, "open")
+	if open.Open != 1 || open.Snoozed != 1 || len(open.Tasks) != 1 || open.Tasks[0].ID != plain || open.Categories["price"] != 0 {
+		t.Errorf("open list: %+v", open)
+	}
+	snoozed := getTasks(t, h, "snoozed")
+	if len(snoozed.Tasks) != 1 || snoozed.Tasks[0].ID != approval || snoozed.Tasks[0].SnoozedUntil == nil || snoozed.Categories["price"] != 1 {
+		t.Errorf("snoozed list: %+v", snoozed)
+	}
+
+	// Its day has come: it is open again and still shows when it was due.
+	if _, err := pool.Exec(context.Background(), `UPDATE task SET snoozed_until = now() - interval '1 minute' WHERE id = $1`, approval); err != nil {
+		t.Fatal(err)
+	}
+	open = getTasks(t, h, "open")
+	if open.Open != 2 || open.Snoozed != 0 || open.Tasks[0].ID != approval || open.Tasks[0].SnoozedUntil == nil {
+		t.Errorf("after the date passed: %+v", open)
+	}
+
+	// Snooze again, then bring it back by hand.
+	if rec := do(t, h, "POST", path, jsonType, `{"until":"`+tomorrow+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("snooze again: %d", rec.Code)
+	}
+	if rec := do(t, h, "POST", path, jsonType, `{"until":null}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("bring back: %d", rec.Code)
+	}
+	if open := getTasks(t, h, "open"); open.Open != 2 || open.Snoozed != 0 {
+		t.Errorf("after bringing back: open %d, snoozed %d", open.Open, open.Snoozed)
+	}
+
+	// A snoozed task can still be decided; a closed one cannot be snoozed.
+	if rec := do(t, h, "POST", path, jsonType, `{"until":"`+tomorrow+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatal("snooze before deciding")
+	}
+	if rec := do(t, h, "POST", "/api/tasks/"+strconv.FormatInt(approval, 10)+"/decision", jsonType, `{"approve":false}`); rec.Code != http.StatusNoContent {
+		t.Errorf("deciding a snoozed task: %d", rec.Code)
+	}
+	if rec := do(t, h, "POST", path, jsonType, `{"until":"`+tomorrow+`"}`); rec.Code != http.StatusConflict {
+		t.Errorf("snoozing a closed task: %d, want 409", rec.Code)
+	}
+	if rec := do(t, h, "GET", "/api/tasks?status=later", "", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown status: %d", rec.Code)
+	}
+}

@@ -201,6 +201,7 @@ type Task struct {
 	ClosedBy       *string
 	Note           *string
 	SourceID       *string
+	SnoozedUntil   *time.Time
 }
 
 type UsagePolicy struct {

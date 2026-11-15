@@ -23,6 +23,8 @@
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
 | Abholen per Job: Datei von einer Adresse laden (mit Anmeldung über Umgebungsvariablen), zeitgesteuert oder auf Knopfdruck; Fehler als Aufgabe | `fetch`, `jobs`, `api`, `web` |
 | Hintergrundjobs mit River: Abrufe einplanen und ausführen, Shopify-Sync im festen Abstand | `jobs` |
+| Wiedervorlage: Aufgaben bis zu einem Tag zurückstellen | `api`, `web` |
+| Tägliche Mail über offene Aufgaben (Job, SMTP über Umgebungsvariablen; `velopim digest` zum Ausprobieren) | `notify`, `jobs` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import per Befehl (`velopim import <quelle> <datei>`) und per Datei-Upload im Reiter „Importe“ | `cmd/velopim`, `api`, `web` |

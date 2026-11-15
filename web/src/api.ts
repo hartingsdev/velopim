@@ -45,6 +45,8 @@ export interface Task {
   category: TaskCategory;
   /** Set for tasks about a product of the own catalog. */
   product_id: number | null;
+  /** Wiedervorlage: put aside until this time; stays set after it has passed. */
+  snoozed_until: string | null;
   action: TaskAction | null;
   item: TaskItem | null;
   /** Supplier items of a new-model task; empty otherwise. */
@@ -58,6 +60,8 @@ export type TaskCategory = "price" | "new_model" | "availability" | "removed" | 
 export interface TaskList {
   tasks: Task[];
   open: number;
+  /** Open tasks put aside until a later date. */
+  snoozed: number;
   closed: number;
   /** Tasks of the requested status and search per category, ignoring the category filter. */
   categories: Partial<Record<TaskCategory, number>>;
@@ -533,4 +537,9 @@ export interface CsvPreview {
 /** Reads header and first rows of a file so its columns can be mapped. Stores nothing. */
 export function previewCsv(file: File): Promise<CsvPreview> {
   return request("/api/csv-preview", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+}
+
+/** Puts a task aside until a day ("2027-01-31"), or brings it back with null. */
+export function snoozeTask(id: number, until: string | null): Promise<void> {
+  return send("POST", `/api/tasks/${id}/snooze`, { until });
 }

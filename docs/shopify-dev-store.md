@@ -28,4 +28,7 @@ Im Formular „Create app manually“ genügt: Name, App URL `https://example.co
 
 Prüfen, ob die Verbindung steht (liest nur): `./bin/velopim shopify-check`
 
+## Rechte später ergänzen
+Im Dev Dashboard die App öffnen, links **Versions**, dann **New version**. Im Feld **Scopes** das neue Recht anhängen, zum Beispiel `…,read_locations,write_publications`, und die Version veröffentlichen. Danach die App im Store öffnen (Einstellungen → Apps) und die neuen Rechte bestätigen. `./bin/velopim shopify-check` zeigt, welche Rechte das Token hat.
+
 Ein festes Admin-Token gibt es bei diesem Weg nicht. velopim tauscht Client ID und Secret gegen ein Token, das 24 Stunden gilt, und erneuert es selbst. `SHOPIFY_WRITE_ENABLED` bleibt `false`, bis der Dry-Run geprüft ist.

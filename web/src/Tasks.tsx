@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, confirmImportRun, decideTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
+import { ApiError, confirmImportRun, decideTask, snoozeTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
 import { Chip, href, SearchBox, type Params } from "./route";
 import {
   axisLabel,
@@ -25,6 +25,7 @@ interface Props {
 
 export function Tasks({ list, params, onChanged, onError }: Props) {
   const closed = params.status === "closed";
+  const snoozed = params.status === "snoozed";
   const filtered = Boolean(params.q || params.category);
   // What matches search and category; the list itself is capped.
   const matching = params.category
@@ -35,8 +36,11 @@ export function Tasks({ list, params, onChanged, onError }: Props) {
     <>
       <div className="toolbar">
         <div className="chips" role="group" aria-label="Status">
-          <Chip view="tasks" params={{ ...params, status: undefined, category: undefined }} active={!closed}>
+          <Chip view="tasks" params={{ ...params, status: undefined, category: undefined }} active={!closed && !snoozed}>
             Offen <span className="n">{list.open}</span>
+          </Chip>
+          <Chip view="tasks" params={{ ...params, status: "snoozed", category: undefined }} active={snoozed}>
+            Wiedervorlage <span className="n">{list.snoozed}</span>
           </Chip>
           <Chip view="tasks" params={{ ...params, status: "closed", category: undefined }} active={closed}>
             Erledigt <span className="n">{list.closed}</span>
@@ -58,7 +62,13 @@ export function Tasks({ list, params, onChanged, onError }: Props) {
       )}
       {list.tasks.length === 0 && (
         <p className="empty">
-          {filtered ? "Keine Aufgabe passt zu Suche und Filter." : closed ? "Noch nichts erledigt." : "Keine offenen Aufgaben."}
+          {filtered
+            ? "Keine Aufgabe passt zu Suche und Filter."
+            : closed
+              ? "Noch nichts erledigt."
+              : snoozed
+                ? "Nichts auf Wiedervorlage."
+                : "Keine offenen Aufgaben."}
         </p>
       )}
       {matching > list.tasks.length && (
@@ -204,6 +214,11 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
         <h2>{task.title}</h2>
         <span className="meta">
           <span className="badge status-done">{categoryLabel(task.category)}</span>
+          {open && task.snoozed_until && (
+            <span className="badge">
+              {new Date(task.snoozed_until) > new Date() ? `Wiedervorlage ${formatDay(task.snoozed_until)}` : "Wiedervorlage fällig"}
+            </span>
+          )}
           {open && task.priority === 1 && <span className="badge">{priorityLabel(1)}</span>}
           {formatDate(task.created_at)}
         </span>
@@ -245,6 +260,7 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
         </div>
       )}
 
+      {open && <Snooze task={task} onChanged={onChanged} onError={onError} />}
       {open ? (
         <div className="decide">
           <input
@@ -286,6 +302,64 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
         </p>
       )}
     </li>
+  );
+}
+
+function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** Day in n days as "2027-01-31", in local time. */
+function dayIn(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Wiedervorlage: put the task aside until a day, or bring it back. */
+function Snooze({ task, onChanged, onError }: { task: Task } & Pick<Props, "onChanged" | "onError">) {
+  const [day, setDay] = useState("");
+  const aside = task.snoozed_until !== null && new Date(task.snoozed_until) > new Date();
+
+  async function snooze(until: string | null) {
+    try {
+      await snoozeTask(task.id, until);
+      onError(null);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+    await onChanged();
+  }
+
+  if (aside) {
+    return (
+      <p className="snooze">
+        Auf Wiedervorlage bis {formatDay(task.snoozed_until!)}.{" "}
+        <button type="button" className="link" onClick={() => void snooze(null)}>
+          Jetzt wieder vorlegen
+        </button>
+      </p>
+    );
+  }
+  return (
+    <details className="snooze">
+      <summary>Wiedervorlage</summary>
+      <div className="condition">
+        <button type="button" onClick={() => void snooze(dayIn(1))}>
+          Morgen
+        </button>
+        <button type="button" onClick={() => void snooze(dayIn(3))}>
+          In 3 Tagen
+        </button>
+        <button type="button" onClick={() => void snooze(dayIn(7))}>
+          In einer Woche
+        </button>
+        <input type="date" value={day} min={dayIn(1)} onChange={(e) => setDay(e.target.value)} aria-label="Wiedervorlage am" />
+        <button type="button" disabled={day === ""} onClick={() => void snooze(day)}>
+          An diesem Tag
+        </button>
+      </div>
+    </details>
   );
 }
 

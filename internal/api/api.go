@@ -46,9 +46,12 @@ type Task struct {
 	// removed, content, import, shopify or other.
 	Category string `json:"category"`
 	// ProductID is set for tasks about a product of the own catalog.
-	ProductID *int64      `json:"product_id"`
-	Action    *TaskAction `json:"action"`
-	Item      *TaskItem   `json:"item"`
+	ProductID *int64 `json:"product_id"`
+	// SnoozedUntil is set while the task is put aside, and stays set after
+	// the date has passed so the list can say it came back.
+	SnoozedUntil *time.Time  `json:"snoozed_until"`
+	Action       *TaskAction `json:"action"`
+	Item         *TaskItem   `json:"item"`
 	// Variants lists the supplier items of a new-model task.
 	Variants []TaskItem `json:"variants"`
 	// LockedSplitBy is set when the model already has products: their cut
@@ -90,9 +93,11 @@ type TaskItem struct {
 
 // TaskList is the response of GET /api/tasks.
 type TaskList struct {
-	Tasks  []Task `json:"tasks"`
-	Open   int64  `json:"open"`
-	Closed int64  `json:"closed"`
+	Tasks []Task `json:"tasks"`
+	Open  int64  `json:"open"`
+	// Snoozed counts open tasks put aside until a later date (Wiedervorlage).
+	Snoozed int64 `json:"snoozed"`
+	Closed  int64 `json:"closed"`
 	// Categories counts the tasks of the requested status and search per
 	// category, regardless of the category filter.
 	Categories map[string]int64 `json:"categories"`
@@ -185,6 +190,7 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option)
 	})
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/decision", s.decideTask)
+	mux.HandleFunc("POST /api/tasks/{id}/snooze", s.snoozeTask)
 	mux.HandleFunc("GET /api/import-runs", s.listImportRuns)
 	mux.HandleFunc("POST /api/import-runs/{id}/confirm", s.confirmImportRun)
 	mux.HandleFunc("POST /api/sources/{id}/imports", s.uploadImport)
@@ -217,19 +223,57 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option)
 	return mux
 }
 
+// snoozeTask puts an open task aside until a day ("until": "2027-01-31") or
+// brings it back ("until": null). The task returns at the start of that day.
+func (s *server) snoozeTask(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Until *string `json:"until"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	var until *time.Time
+	if in.Until != nil {
+		day, err := time.ParseInLocation("2006-01-02", *in.Until, time.Local)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "until must be a date like 2027-01-31")
+			return
+		}
+		if !day.After(time.Now()) {
+			writeError(w, http.StatusUnprocessableEntity, "until must be a day in the future")
+			return
+		}
+		until = &day
+	}
+	n, err := db.New(s.pool).SnoozeTask(r.Context(), db.SnoozeTaskParams{ID: id, SnoozedUntil: until})
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusConflict, "task is not open")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // taskCategories are the values of Task.Category, in display order.
 var taskCategories = []string{"price", "new_model", "availability", "removed", "content", "import", "shopify", "other"}
 
 func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.pool)
 	query := r.URL.Query()
-	open := true
-	switch query.Get("status") {
-	case "", "open":
-	case "closed":
-		open = false
+	view := query.Get("status")
+	switch view {
+	case "":
+		view = "open"
+	case "open", "snoozed", "closed":
 	default:
-		writeError(w, http.StatusBadRequest, "status must be open or closed")
+		writeError(w, http.StatusBadRequest, "status must be open, snoozed or closed")
 		return
 	}
 	category := query.Get("category")
@@ -239,7 +283,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	search := strings.TrimSpace(query.Get("q"))
 
-	rows, err := q.ListTasks(r.Context(), db.ListTasksParams{Open: open, Category: category, Q: search, MaxRows: listLimit})
+	rows, err := q.ListTasks(r.Context(), db.ListTasksParams{View: view, Category: category, Q: search, MaxRows: listLimit})
 	if err != nil {
 		internalError(w, err)
 		return
@@ -249,12 +293,13 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	byCategory, err := q.CountTasksByCategory(r.Context(), db.CountTasksByCategoryParams{Open: open, Q: search})
+	byCategory, err := q.CountTasksByCategory(r.Context(), db.CountTasksByCategoryParams{View: view, Q: search})
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Closed: counts.Closed, Categories: map[string]int64{}}
+	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Snoozed: counts.Snoozed, Closed: counts.Closed,
+		Categories: map[string]int64{}}
 	for _, c := range byCategory {
 		out.Categories[c.Category] = c.Count
 	}
@@ -272,7 +317,8 @@ func taskFromRow(row db.ListTasksRow) Task {
 	t := Task{
 		ID: row.ID, Kind: row.Kind, Title: row.Title, Detail: row.Detail, Status: row.Status,
 		Priority: int(row.Priority), CreatedAt: row.CreatedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy,
-		Note: row.Note, ImportRunID: row.ImportRunID, Category: row.Category, ProductID: row.ProductID, Variants: []TaskItem{},
+		Note: row.Note, ImportRunID: row.ImportRunID, Category: row.Category, ProductID: row.ProductID, SnoozedUntil: row.SnoozedUntil,
+		Variants: []TaskItem{},
 	}
 	if row.ActionType != nil {
 		t.Action = &TaskAction{Type: *row.ActionType, Field: str(row.ActionField), Old: str(row.OldValue),

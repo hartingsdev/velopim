@@ -11,20 +11,22 @@ import (
 )
 
 const countTasks = `-- name: CountTasks :one
-SELECT count(*) FILTER (WHERE status = 'open') AS open,
+SELECT count(*) FILTER (WHERE status = 'open' AND (snoozed_until IS NULL OR snoozed_until <= now())) AS open,
+       count(*) FILTER (WHERE status = 'open' AND snoozed_until > now()) AS snoozed,
        count(*) FILTER (WHERE status <> 'open') AS closed
 FROM task
 `
 
 type CountTasksRow struct {
-	Open   int64
-	Closed int64
+	Open    int64
+	Snoozed int64
+	Closed  int64
 }
 
 func (q *Queries) CountTasks(ctx context.Context) (CountTasksRow, error) {
 	row := q.db.QueryRow(ctx, countTasks)
 	var i CountTasksRow
-	err := row.Scan(&i.Open, &i.Closed)
+	err := row.Scan(&i.Open, &i.Snoozed, &i.Closed)
 	return i, err
 }
 
@@ -42,7 +44,11 @@ SELECT (CASE
 FROM task t
 LEFT JOIN action a ON a.id = t.action_id
 LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE (t.status = 'open') = $1::bool
+WHERE CASE $1::text
+          WHEN 'open' THEN t.status = 'open' AND (t.snoozed_until IS NULL OR t.snoozed_until <= now())
+          WHEN 'snoozed' THEN t.status = 'open' AND t.snoozed_until > now()
+          ELSE t.status <> 'open'
+      END
   AND ($2::text = ''
        OR strpos(lower(t.title), lower($2::text)) > 0
        OR strpos(lower(coalesce(s.sku, '') || ' ' || coalesce(s.ean, '')), lower($2::text)) > 0
@@ -53,7 +59,7 @@ GROUP BY 1
 `
 
 type CountTasksByCategoryParams struct {
-	Open bool
+	View string
 	Q    string
 }
 
@@ -63,7 +69,7 @@ type CountTasksByCategoryRow struct {
 }
 
 func (q *Queries) CountTasksByCategory(ctx context.Context, arg CountTasksByCategoryParams) ([]CountTasksByCategoryRow, error) {
-	rows, err := q.db.Query(ctx, countTasksByCategory, arg.Open, arg.Q)
+	rows, err := q.db.Query(ctx, countTasksByCategory, arg.View, arg.Q)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +86,28 @@ func (q *Queries) CountTasksByCategory(ctx context.Context, arg CountTasksByCate
 		return nil, err
 	}
 	return items, nil
+}
+
+const digestCounts = `-- name: DigestCounts :one
+SELECT count(*) AS open,
+       count(*) FILTER (WHERE priority = 1) AS high,
+       count(*) FILTER (WHERE snoozed_until IS NOT NULL) AS resubmitted
+FROM task
+WHERE status = 'open' AND (snoozed_until IS NULL OR snoozed_until <= now())
+`
+
+type DigestCountsRow struct {
+	Open        int64
+	High        int64
+	Resubmitted int64
+}
+
+// What the daily mail reports: open tasks that are not put aside.
+func (q *Queries) DigestCounts(ctx context.Context) (DigestCountsRow, error) {
+	row := q.db.QueryRow(ctx, digestCounts)
+	var i DigestCountsRow
+	err := row.Scan(&i.Open, &i.High, &i.Resubmitted)
+	return i, err
 }
 
 const getSource = `-- name: GetSource :one
@@ -215,7 +243,7 @@ func (q *Queries) ListImportRuns(ctx context.Context, limit int32) ([]ListImport
 
 const listTasks = `-- name: ListTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
-       t.import_run_id, t.action_id, t.product_id,
+       t.import_run_id, t.action_id, t.product_id, t.snoozed_until,
        a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size,
@@ -233,7 +261,11 @@ FROM task t
 LEFT JOIN action a ON a.id = t.action_id
 LEFT JOIN rule r ON r.id = a.rule_id
 LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE (t.status = 'open') = $1::bool
+WHERE CASE $1::text
+          WHEN 'open' THEN t.status = 'open' AND (t.snoozed_until IS NULL OR t.snoozed_until <= now())
+          WHEN 'snoozed' THEN t.status = 'open' AND t.snoozed_until > now()
+          ELSE t.status <> 'open'
+      END
   AND ($2::text = '' OR (CASE
            WHEN a.type = 'new_product' THEN 'new_model'
            WHEN a.type = 'price_change' THEN 'price'
@@ -250,14 +282,15 @@ WHERE (t.status = 'open') = $1::bool
        OR EXISTS (SELECT 1 FROM action_item ai JOIN supplier_item si ON si.id = ai.supplier_item_id
                   WHERE ai.action_id = t.action_id
                     AND strpos(lower(si.sku || ' ' || si.ean), lower($3::text)) > 0))
-ORDER BY CASE WHEN $1::bool THEN t.priority END,
-         CASE WHEN $1::bool THEN t.created_at ELSE t.closed_at END DESC,
+ORDER BY CASE WHEN $1::text = 'open' THEN t.priority END,
+         CASE WHEN $1::text = 'snoozed' THEN t.snoozed_until END,
+         CASE WHEN $1::text = 'open' THEN t.created_at ELSE t.closed_at END DESC,
          t.id DESC
 LIMIT $4
 `
 
 type ListTasksParams struct {
-	Open     bool
+	View     string
 	Category string
 	Q        string
 	MaxRows  int32
@@ -277,6 +310,7 @@ type ListTasksRow struct {
 	ImportRunID        *int64
 	ActionID           *int64
 	ProductID          *int64
+	SnoozedUntil       *time.Time
 	ActionType         *string
 	ActionField        *string
 	OldValue           *string
@@ -296,11 +330,13 @@ type ListTasksRow struct {
 	Category           string
 }
 
-// Open tasks are ordered by priority, closed ones by when they were closed.
+// view is 'open' (open and not put aside), 'snoozed' (put aside until a later
+// date) or 'closed'. Open tasks are ordered by priority, snoozed ones by
+// their date, closed ones by when they were closed.
 // category ” means all; q matches title, article numbers and EANs.
 func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error) {
 	rows, err := q.db.Query(ctx, listTasks,
-		arg.Open,
+		arg.View,
 		arg.Category,
 		arg.Q,
 		arg.MaxRows,
@@ -326,6 +362,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTas
 			&i.ImportRunID,
 			&i.ActionID,
 			&i.ProductID,
+			&i.SnoozedUntil,
 			&i.ActionType,
 			&i.ActionField,
 			&i.OldValue,
@@ -424,4 +461,22 @@ func (q *Queries) SearchSupplierItems(ctx context.Context, arg SearchSupplierIte
 		return nil, err
 	}
 	return items, nil
+}
+
+const snoozeTask = `-- name: SnoozeTask :execrows
+UPDATE task SET snoozed_until = $2 WHERE id = $1 AND status = 'open'
+`
+
+type SnoozeTaskParams struct {
+	ID           int64
+	SnoozedUntil *time.Time
+}
+
+// Puts an open task aside until a date; NULL brings it back at once.
+func (q *Queries) SnoozeTask(ctx context.Context, arg SnoozeTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, snoozeTask, arg.ID, arg.SnoozedUntil)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

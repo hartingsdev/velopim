@@ -1,8 +1,10 @@
 -- name: ListTasks :many
--- Open tasks are ordered by priority, closed ones by when they were closed.
+-- view is 'open' (open and not put aside), 'snoozed' (put aside until a later
+-- date) or 'closed'. Open tasks are ordered by priority, snoozed ones by
+-- their date, closed ones by when they were closed.
 -- category '' means all; q matches title, article numbers and EANs.
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
-       t.import_run_id, t.action_id, t.product_id,
+       t.import_run_id, t.action_id, t.product_id, t.snoozed_until,
        a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size,
@@ -20,7 +22,11 @@ FROM task t
 LEFT JOIN action a ON a.id = t.action_id
 LEFT JOIN rule r ON r.id = a.rule_id
 LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE (t.status = 'open') = sqlc.arg(open)::bool
+WHERE CASE sqlc.arg(view)::text
+          WHEN 'open' THEN t.status = 'open' AND (t.snoozed_until IS NULL OR t.snoozed_until <= now())
+          WHEN 'snoozed' THEN t.status = 'open' AND t.snoozed_until > now()
+          ELSE t.status <> 'open'
+      END
   AND (sqlc.arg(category)::text = '' OR (CASE
            WHEN a.type = 'new_product' THEN 'new_model'
            WHEN a.type = 'price_change' THEN 'price'
@@ -37,8 +43,9 @@ WHERE (t.status = 'open') = sqlc.arg(open)::bool
        OR EXISTS (SELECT 1 FROM action_item ai JOIN supplier_item si ON si.id = ai.supplier_item_id
                   WHERE ai.action_id = t.action_id
                     AND strpos(lower(si.sku || ' ' || si.ean), lower(sqlc.arg(q)::text)) > 0))
-ORDER BY CASE WHEN sqlc.arg(open)::bool THEN t.priority END,
-         CASE WHEN sqlc.arg(open)::bool THEN t.created_at ELSE t.closed_at END DESC,
+ORDER BY CASE WHEN sqlc.arg(view)::text = 'open' THEN t.priority END,
+         CASE WHEN sqlc.arg(view)::text = 'snoozed' THEN t.snoozed_until END,
+         CASE WHEN sqlc.arg(view)::text = 'open' THEN t.created_at ELSE t.closed_at END DESC,
          t.id DESC
 LIMIT sqlc.arg(max_rows);
 
@@ -56,7 +63,11 @@ SELECT (CASE
 FROM task t
 LEFT JOIN action a ON a.id = t.action_id
 LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE (t.status = 'open') = sqlc.arg(open)::bool
+WHERE CASE sqlc.arg(view)::text
+          WHEN 'open' THEN t.status = 'open' AND (t.snoozed_until IS NULL OR t.snoozed_until <= now())
+          WHEN 'snoozed' THEN t.status = 'open' AND t.snoozed_until > now()
+          ELSE t.status <> 'open'
+      END
   AND (sqlc.arg(q)::text = ''
        OR strpos(lower(t.title), lower(sqlc.arg(q)::text)) > 0
        OR strpos(lower(coalesce(s.sku, '') || ' ' || coalesce(s.ean, '')), lower(sqlc.arg(q)::text)) > 0
@@ -66,7 +77,8 @@ WHERE (t.status = 'open') = sqlc.arg(open)::bool
 GROUP BY 1;
 
 -- name: CountTasks :one
-SELECT count(*) FILTER (WHERE status = 'open') AS open,
+SELECT count(*) FILTER (WHERE status = 'open' AND (snoozed_until IS NULL OR snoozed_until <= now())) AS open,
+       count(*) FILTER (WHERE status = 'open' AND snoozed_until > now()) AS snoozed,
        count(*) FILTER (WHERE status <> 'open') AS closed
 FROM task;
 
@@ -98,3 +110,15 @@ WHERE strpos(lower(s.sku || ' ' || s.ean || ' ' || s.mpn || ' ' || s.brand || ' 
              lower(sqlc.arg(q)::text)) > 0
 ORDER BY s.brand, s.name, s.sku
 LIMIT sqlc.arg(max_rows);
+
+-- name: SnoozeTask :execrows
+-- Puts an open task aside until a date; NULL brings it back at once.
+UPDATE task SET snoozed_until = $2 WHERE id = $1 AND status = 'open';
+
+-- name: DigestCounts :one
+-- What the daily mail reports: open tasks that are not put aside.
+SELECT count(*) AS open,
+       count(*) FILTER (WHERE priority = 1) AS high,
+       count(*) FILTER (WHERE snoozed_until IS NOT NULL) AS resubmitted
+FROM task
+WHERE status = 'open' AND (snoozed_until IS NULL OR snoozed_until <= now());
