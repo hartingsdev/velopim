@@ -34,6 +34,11 @@ import (
 
 func main() {
 	log.SetFlags(0)
+	// Settings come from the environment; a .env file in the working
+	// directory fills in what is not set there.
+	if err := loadDotEnv(".env"); err != nil {
+		log.Fatalf("velopim: %v", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "velopim",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "set -a; . ./.env; set +a; exec ./bin/velopim serve"],
+      "runtimeExecutable": "./bin/velopim",
+      "runtimeArgs": ["serve"],
       "port": 8080
     }
   ]

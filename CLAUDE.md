@@ -34,7 +34,7 @@ Pflege:
 
 ## Befehle
 - Go, Node und sqlc liegen unter `~/.local/bin` (ggf. `export PATH="$HOME/.local/bin:$PATH"`).
-- Umgebung laden: `set -a; . ./.env; set +a`
+- `velopim` liest die `.env` im aktuellen Ordner selbst; was schon in der Umgebung steht, hat Vorrang. Für `go test` und `goose` die Umgebung von Hand laden: `set -a; . ./.env; set +a`
 - Datenbank starten: `docker compose up -d`
 - Migrationen: `go run github.com/pressly/goose/v3/cmd/goose@v3.24.1 -dir db/migrations postgres "$DATABASE_URL" up`
 - Nach Änderungen an `db/queries/` oder `db/migrations/`: `sqlc generate`
