@@ -210,7 +210,7 @@ SELECT source_id, brand FROM supplier_item WHERE id = $1;
 -- Products selected for the store or already in Shopify, with what Shopify
 -- last confirmed.
 SELECT p.id, p.brand, p.name, p.category, p.status, p.description_html, p.image_urls, p.option_names,
-       l.wanted, l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
+       l.wanted, l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error, l.media_ids
 FROM product p JOIN shopify_listing l ON l.product_id = p.id
 WHERE l.wanted OR l.shopify_product_id IS NOT NULL
 ORDER BY p.brand, p.model_key, p.id;
@@ -227,7 +227,7 @@ ORDER BY v.product_id, v.id;
 
 -- name: SaveListingSynced :exec
 UPDATE shopify_listing SET shopify_product_id = $2, variant_ids = $3, synced_projection = $4, synced_hash = $5,
-    last_synced_at = $6, last_error = NULL
+    last_synced_at = $6, last_error = $7, media_ids = $8
 WHERE product_id = $1;
 
 -- name: SaveListingError :exec

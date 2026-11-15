@@ -68,6 +68,30 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// periodicSync runs the Shopify sync at a fixed interval until ctx ends.
+// Failures of single products become tasks; anything else is logged and
+// tried again at the next tick.
+func periodicSync(ctx context.Context, pool *pgxpool.Pool, store shopsync.Store, interval time.Duration) {
+	log.Printf("periodic Shopify sync every %s", interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			res, err := shopsync.Run(ctx, pool, store, time.Now())
+			if err != nil {
+				log.Printf("periodic sync: %v", err)
+				continue
+			}
+			if res.Synced > 0 || res.Failed > 0 {
+				log.Printf("periodic sync: %d synced, %d failed", res.Synced, res.Failed)
+			}
+		}
+	}
+}
+
 // rawDir is where original supplier files are kept.
 func rawDir() string {
 	return filepath.Join(env("VELOPIM_DATA_DIR", "data"), "raw")
@@ -108,6 +132,21 @@ func serve(ctx context.Context) error {
 		store = client
 	}
 	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, api.WithRawDir(rawDir())))
+
+	// Optional: send pending changes to Shopify at a fixed interval, e.g.
+	// VELOPIM_SYNC_INTERVAL=15m. Off by default; it also needs writing to be
+	// enabled.
+	if v := os.Getenv("VELOPIM_SYNC_INTERVAL"); v != "" && store != nil {
+		interval, err := time.ParseDuration(v)
+		if err != nil || interval < time.Minute {
+			return fmt.Errorf("VELOPIM_SYNC_INTERVAL %q must be a duration of at least 1m, e.g. 15m", v)
+		}
+		if !shopifyConfig().WriteEnabled {
+			log.Printf("periodic sync is configured but writing to Shopify is switched off; not started")
+		} else {
+			go periodicSync(ctx, pool, store, interval)
+		}
+	}
 	mux.Handle("/", web.Handler())
 
 	// There is no login: keep the default on localhost.

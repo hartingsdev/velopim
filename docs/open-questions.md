@@ -27,7 +27,7 @@
 - **Alte englische Texte:** Datenprobleme aus Importen vor der Umstellung stehen noch englisch in der Datenbank.
 - **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.
 - **Lieferzeit-Texte:** stehen fest im Code (`availability.Derive`), sollen konfigurierbar werden.
-- **Bilder im Sync ungeprüft:** Die Testdaten haben unerreichbare Bildadressen; ob und wie Shopify echte Bilder übernimmt und Fehler meldet, ist offen.
-- **Sync von Hand:** Nach einem Import oder einer Freigabe muss der Sync ausgelöst werden.
+- **Testbilder:** Die Beispieldaten haben unerreichbare Bildadressen (`example.test`); ein Sync damit erzeugt den Task „Bilder fehlen in Shopify“.
+- **Sync-Auslöser:** von Hand oder im festen Abstand (`VELOPIM_SYNC_INTERVAL`), nicht unmittelbar nach Import oder Freigabe.
 - **Shopify-Grenzen:** 3 Optionen und 2048 Varianten je Produkt stehen als Konstanten im Code und sind gegen die verwendete API-Version zu prüfen.
 - **Testdaten:** `testdata/example_supplier.csv` ist erfunden und kein Hartje-Format.

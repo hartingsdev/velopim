@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Metafield that carries the delivery-time text of a variant. Provisional
@@ -27,7 +28,10 @@ const (
 // No stock quantities are managed (docs/decisions/0009). A sellable variant
 // is not tracked, so it can always be bought. A variant that must not be
 // sold is tracked with a quantity of zero at locationID and sells out.
-func ProductSetInput(p Product, locationID string) map[string]any {
+//
+// mediaIDs maps image addresses to the media Shopify already holds for
+// them; those images are referred to by id instead of being fetched again.
+func ProductSetInput(p Product, locationID string, mediaIDs map[string]string) map[string]any {
 	status := "DRAFT"
 	if p.Published {
 		status = "ACTIVE"
@@ -88,6 +92,10 @@ func ProductSetInput(p Product, locationID string) map[string]any {
 
 	files := make([]map[string]any, len(p.ImageURLs))
 	for i, u := range p.ImageURLs {
+		if id := mediaIDs[u]; id != "" {
+			files[i] = map[string]any{"id": id}
+			continue
+		}
 		files[i] = map[string]any{"originalSource": u, "contentType": "IMAGE", "alt": p.Title}
 	}
 
@@ -128,6 +136,8 @@ type SetResult struct {
 	VariantIDs map[string]string
 	// AvailableForSale maps SKU to what Shopify reports to customers.
 	AvailableForSale map[string]bool
+	// MediaIDs are the product's media in the order of the images sent.
+	MediaIDs []string
 }
 
 // UserError is a validation error of a mutation: Shopify understood the
@@ -141,6 +151,7 @@ const productSetMutation = `mutation velopimProductSet($input: ProductSetInput!,
     product {
       id legacyResourceId handle status onlineStorePreviewUrl
       variants(first: 250) { nodes { id sku availableForSale } }
+      media(first: 250) { nodes { id } }
     }
     userErrors { field message code }
   }
@@ -148,13 +159,13 @@ const productSetMutation = `mutation velopimProductSet($input: ProductSetInput!,
 
 // SetProduct creates the product, or replaces the product with the given
 // Shopify id (empty for a new one). Calling it again with the same input
-// changes nothing.
-func (c *Client) SetProduct(ctx context.Context, p Product, shopifyID string) (SetResult, error) {
+// changes nothing. mediaIDs are the images Shopify already holds, by address.
+func (c *Client) SetProduct(ctx context.Context, p Product, shopifyID string, mediaIDs map[string]string) (SetResult, error) {
 	locationID, err := c.locationID(ctx)
 	if err != nil {
 		return SetResult{}, err
 	}
-	variables := map[string]any{"input": ProductSetInput(p, locationID)}
+	variables := map[string]any{"input": ProductSetInput(p, locationID, mediaIDs)}
 	if shopifyID != "" {
 		variables["identifier"] = map[string]any{"id": shopifyID}
 	}
@@ -173,6 +184,11 @@ func (c *Client) SetProduct(ctx context.Context, p Product, shopifyID string) (S
 						AvailableForSale bool   `json:"availableForSale"`
 					} `json:"nodes"`
 				} `json:"variants"`
+				Media struct {
+					Nodes []struct {
+						ID string `json:"id"`
+					} `json:"nodes"`
+				} `json:"media"`
 			} `json:"product"`
 			UserErrors []struct {
 				Field   []string `json:"field"`
@@ -203,6 +219,9 @@ func (c *Client) SetProduct(ctx context.Context, p Product, shopifyID string) (S
 	for _, v := range prod.Variants.Nodes {
 		res.VariantIDs[v.SKU] = v.ID
 		res.AvailableForSale[v.SKU] = v.AvailableForSale
+	}
+	for _, m := range prod.Media.Nodes {
+		res.MediaIDs = append(res.MediaIDs, m.ID)
 	}
 	return res, nil
 }
@@ -263,4 +282,77 @@ func (c *Client) locationID(ctx context.Context) (string, error) {
 func (c *Client) AdminURL(numericID string) string {
 	store := strings.TrimSuffix(c.cfg.StoreDomain, ".myshopify.com")
 	return "https://admin.shopify.com/store/" + store + "/products/" + numericID
+}
+
+// MediaState is the processing state of one image of a product.
+type MediaState struct {
+	ID     string
+	Status string // UPLOADED, PROCESSING, READY or FAILED
+	URL    string // where Shopify serves the image, once ready
+	Errors []string
+}
+
+// ProductMedia reads the images Shopify holds for a product. Shopify fetches
+// images after the sync, so their state is only known later.
+func (c *Client) ProductMedia(ctx context.Context, shopifyID string) ([]MediaState, error) {
+	var out struct {
+		Product *struct {
+			Media struct {
+				Nodes []struct {
+					ID          string `json:"id"`
+					Status      string `json:"status"`
+					MediaErrors []struct {
+						Message string `json:"message"`
+					} `json:"mediaErrors"`
+					Image *struct {
+						URL string `json:"url"`
+					} `json:"image"`
+				} `json:"nodes"`
+			} `json:"media"`
+		} `json:"product"`
+	}
+	err := c.Query(ctx, `query($id: ID!) { product(id: $id) { media(first: 50) { nodes {
+		id status mediaErrors { message } ... on MediaImage { image { url } } } } } }`, map[string]any{"id": shopifyID}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Product == nil {
+		return nil, errors.New("shopify: product not found")
+	}
+	states := make([]MediaState, 0, len(out.Product.Media.Nodes))
+	for _, n := range out.Product.Media.Nodes {
+		s := MediaState{ID: n.ID, Status: n.Status}
+		if n.Image != nil {
+			s.URL = n.Image.URL
+		}
+		for _, e := range n.MediaErrors {
+			s.Errors = append(s.Errors, e.Message)
+		}
+		states = append(states, s)
+	}
+	return states, nil
+}
+
+// WaitForMedia waits until Shopify has finished fetching a product's images
+// or the time is up, and returns their states.
+func (c *Client) WaitForMedia(ctx context.Context, shopifyID string, limit time.Duration) ([]MediaState, error) {
+	deadline := time.Now().Add(limit)
+	for {
+		states, err := c.ProductMedia(ctx, shopifyID)
+		if err != nil {
+			return nil, err
+		}
+		pending := false
+		for _, s := range states {
+			pending = pending || s.Status == "UPLOADED" || s.Status == "PROCESSING"
+		}
+		if !pending || time.Now().After(deadline) {
+			return states, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

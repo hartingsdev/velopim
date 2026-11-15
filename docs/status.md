@@ -18,7 +18,7 @@
 | Regelpflege in der Oberfläche: anlegen, ändern, ein- und ausschalten, löschen; Vorlagen für häufige Regeln | `api`, `web` |
 | Produktansicht je Modell: Name, Beschreibung und Preise bearbeiten, „in den Store“ auswählen, interne Notizen, Herkunft und Verlauf jedes Feldes | `api`, `web` |
 | Nutzungsrichtlinie je Lieferant, Marke und Datengruppe, gepflegt im Reiter „Lieferanten“ | `catalog`, `importer`, `api`, `web` |
-| Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Veröffentlichen-Task, Fehler-Task; `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
+| Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Bilder werden behalten statt neu geladen, Veröffentlichen-Task, Fehler-Task; `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
@@ -29,7 +29,7 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 
 ## Noch nicht begonnen
 - Trennmerkmale eines bestehenden Modells ändern; Bilder und Varianten von Hand bearbeiten
-- Automatischer Sync nach Import oder Freigabe (bisher von Hand ausgelöst)
+- Sync unmittelbar nach Import oder Freigabe (bisher von Hand oder im festen Abstand)
 - Veröffentlichung im Vertriebskanal „Onlineshop“ (braucht das Recht `write_publications`)
 - Matching bestehender Shopify-Produkte
 - Pflege von Quellen in der Oberfläche (Konnektor-Konfiguration und Verfügbarkeits-Mapping stehen nur in der Datenbank)

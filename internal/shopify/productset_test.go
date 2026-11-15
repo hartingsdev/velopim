@@ -16,7 +16,7 @@ func TestProductSetInput(t *testing.T) {
 			{SKU: "10003", OptionValues: []string{"blau", ""}, PriceCents: 5, Sellable: true, DeliveryText: "Sofort lieferbar"},
 		},
 	}
-	raw, err := json.Marshal(ProductSetInput(p, "gid://shopify/Location/1"))
+	raw, err := json.Marshal(ProductSetInput(p, "gid://shopify/Location/1", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestProductSetInput(t *testing.T) {
 
 	// A product without options gets Shopify's default option; a published
 	// product is active.
-	plain := ProductSetInput(Product{Title: "Solo", Published: true, Variants: []Variant{{SKU: "1", PriceCents: 100, Sellable: true}}}, "loc")
+	plain := ProductSetInput(Product{Title: "Solo", Published: true, Variants: []Variant{{SKU: "1", PriceCents: 100, Sellable: true}}}, "loc", nil)
 	raw, _ = json.Marshal(plain)
 	if !strings.Contains(string(raw), `"status":"ACTIVE"`) || !strings.Contains(string(raw), `"name":"Title"`) ||
 		!strings.Contains(string(raw), `"name":"Default Title","optionName":"Title"`) {

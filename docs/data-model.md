@@ -34,7 +34,7 @@ Der Katalog wird befüllt, wenn ein neues Modell freigegeben wird (`catalog.Crea
 - **`internal_note`**, **`internal_field`:** Notizen und freie interne Felder zu Produkt, Variante, Lieferantenartikel oder Quelle (z. B. Ansprechpartner, Bestellhinweise). Kommen in der Shopify-Projektion nicht vor.
 
 ## Shopify
-- **`shopify_listing`:** ob ein Produkt in den Store soll, die Shopify-IDs, die zuletzt bestätigte Projektion mit Hash und der letzte Fehler.
+- **`shopify_listing`:** ob ein Produkt in den Store soll, die Shopify-IDs von Produkt, Varianten und Bildern, die zuletzt bestätigte Projektion mit Hash und der letzte Fehler.
 
 ## Verfügbarkeit
 Lieferantenunabhängiges Modell in `internal/availability`: Status (`in_stock`, `orderable`, `preorder`, `on_request`, `unavailable`, `discontinued`, `unknown`), Lieferzeit in Tagen von/bis, Termin, Menge, Quelle, Stand. Jede Quelle bildet ihre Rohfelder über geordnete Mapping-Regeln darauf ab. Nur ein Statuswechsel ist eine Aktion ([8](decisions/0008-availability-status-actions.md)); zu Shopify gehen nur „verkaufbar“ und ein Lieferzeit-Text ([9](decisions/0009-no-stock-quantities-mvp.md)).

@@ -19,9 +19,15 @@ import (
 
 // Store is the part of the Shopify client the sync needs.
 type Store interface {
-	SetProduct(ctx context.Context, p shopify.Product, shopifyID string) (shopify.SetResult, error)
+	SetProduct(ctx context.Context, p shopify.Product, shopifyID string, mediaIDs map[string]string) (shopify.SetResult, error)
+	// WaitForMedia reports the state of the product's images once Shopify
+	// has fetched them, or after the limit.
+	WaitForMedia(ctx context.Context, shopifyID string, limit time.Duration) ([]shopify.MediaState, error)
 	AdminURL(numericID string) string
 }
+
+// mediaWait is how long a run waits for Shopify to fetch a product's images.
+const mediaWait = 30 * time.Second
 
 // Item is the planned sync of one product.
 type Item struct {
@@ -39,6 +45,8 @@ type Item struct {
 	Ops  []shopify.Op
 	// Issues are reasons Shopify would refuse the product; it is not sent.
 	Issues []string
+	// MediaIDs maps image addresses to the media Shopify already holds.
+	MediaIDs map[string]string
 }
 
 // Plan computes what a sync would do. It reads only.
@@ -84,7 +92,8 @@ func Plan(ctx context.Context, q *db.Queries, now time.Time) ([]Item, error) {
 			return nil, fmt.Errorf("shopsync: product %d: %w", row.ID, err)
 		}
 		item := Item{ProductID: row.ID, Name: row.Brand + " " + row.Name, Wanted: row.Wanted, LastSynced: row.LastSyncedAt,
-			LastError: row.LastError, Next: shopify.Project(cp, now), Issues: []string{}}
+			LastError: row.LastError, Next: shopify.Project(cp, now), Issues: []string{}, MediaIDs: map[string]string{}}
+		_ = json.Unmarshal(row.MediaIds, &item.MediaIDs)
 		if row.ShopifyProductID != nil {
 			item.ShopifyID = *row.ShopifyProductID
 		}
@@ -149,7 +158,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, store Store, now time.Time) (R
 			res.Failed++
 		default:
 			var set shopify.SetResult
-			set, err = store.SetProduct(ctx, item.Next, item.ShopifyID)
+			set, err = store.SetProduct(ctx, item.Next, item.ShopifyID, item.MediaIDs)
 			if err != nil {
 				// Without permission to write nothing is recorded: that is
 				// a configuration problem, not one of the product.
@@ -163,7 +172,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, store Store, now time.Time) (R
 			}
 			out.Status, out.Created = "synced", item.ShopifyID == ""
 			res.Synced++
-			err = succeed(ctx, pool, item, set, store.AdminURL(set.NumericID), now)
+			mediaIDs, imageProblem := checkImages(ctx, store, item, set)
+			out.Error = imageProblem
+			err = succeed(ctx, pool, item, set, store.AdminURL(set.NumericID), mediaIDs, imageProblem, now)
 		}
 		if err != nil {
 			return res, err
@@ -184,9 +195,42 @@ func joinIssues(issues []string) string {
 	return s
 }
 
+// checkImages waits for Shopify to fetch the product's images. It returns
+// the media ids of the images that are ready, by address, and a message
+// naming the images Shopify could not load.
+func checkImages(ctx context.Context, store Store, item Item, set shopify.SetResult) (map[string]string, string) {
+	ready := map[string]string{}
+	urls := item.Next.ImageURLs
+	if len(urls) == 0 || len(set.MediaIDs) != len(urls) {
+		return ready, ""
+	}
+	states, err := store.WaitForMedia(ctx, set.ProductID, mediaWait)
+	if err != nil {
+		return ready, "Zustand der Bilder konnte nicht gelesen werden: " + err.Error()
+	}
+	status := map[string]string{}
+	for _, s := range states {
+		status[s.ID] = s.Status
+	}
+	var failed []string
+	for i, u := range urls {
+		switch status[set.MediaIDs[i]] {
+		case "READY":
+			ready[u] = set.MediaIDs[i]
+		case "FAILED":
+			failed = append(failed, u)
+		}
+	}
+	if len(failed) > 0 {
+		return ready, "Shopify konnte diese Bilder nicht laden: " + joinIssues(failed)
+	}
+	return ready, ""
+}
+
 // succeed stores what Shopify confirmed. A product new to Shopify gets the
-// task to check and publish it.
-func succeed(ctx context.Context, pool *pgxpool.Pool, item Item, set shopify.SetResult, adminURL string, now time.Time) error {
+// task to check and publish it. imageProblem names images Shopify could not
+// load; it is kept as the listing's error and becomes a task.
+func succeed(ctx context.Context, pool *pgxpool.Pool, item Item, set shopify.SetResult, adminURL string, mediaIDs map[string]string, imageProblem string, now time.Time) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -197,12 +241,24 @@ func succeed(ctx context.Context, pool *pgxpool.Pool, item Item, set shopify.Set
 	projection, _ := json.Marshal(item.Next)
 	variantIDs, _ := json.Marshal(set.VariantIDs)
 	hash := item.Next.Hash()
+	media, _ := json.Marshal(mediaIDs)
+	var lastError *string
+	if imageProblem != "" {
+		lastError = &imageProblem
+	}
 	if err := q.SaveListingSynced(ctx, db.SaveListingSyncedParams{ProductID: item.ProductID, ShopifyProductID: &set.ProductID,
-		VariantIds: variantIDs, SyncedProjection: projection, SyncedHash: &hash, LastSyncedAt: &now}); err != nil {
+		VariantIds: variantIDs, SyncedProjection: projection, SyncedHash: &hash, LastSyncedAt: &now,
+		LastError: lastError, MediaIds: media}); err != nil {
 		return err
 	}
 	if err := q.CloseSyncFailedTasks(ctx, &item.ProductID); err != nil {
 		return err
+	}
+	if imageProblem != "" {
+		if err := q.InsertProductTask(ctx, db.InsertProductTaskParams{Kind: "sync_failed",
+			Title: "Bilder fehlen in Shopify: " + item.Name, Detail: imageProblem, Priority: 2, ProductID: &item.ProductID}); err != nil {
+			return err
+		}
 	}
 	if item.ShopifyID == "" && !item.Next.Published {
 		open, err := q.HasOpenProductTask(ctx, db.HasOpenProductTaskParams{ProductID: item.ProductID, Kind: "publish_product"})

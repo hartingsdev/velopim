@@ -22,9 +22,22 @@ type fakeStore struct {
 	ids    []string // Shopify id each call was made with
 	fail   error
 	nextID int
+
+	sentMedia []map[string]string // media ids each call was made with
+	media     map[string]string   // state of the media of the last call
+	nextMedia int
 }
 
-func (f *fakeStore) SetProduct(_ context.Context, p shopify.Product, shopifyID string) (shopify.SetResult, error) {
+func (f *fakeStore) WaitForMedia(_ context.Context, _ string, _ time.Duration) ([]shopify.MediaState, error) {
+	var out []shopify.MediaState
+	for id, status := range f.media {
+		out = append(out, shopify.MediaState{ID: id, Status: status})
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SetProduct(_ context.Context, p shopify.Product, shopifyID string, mediaIDs map[string]string) (shopify.SetResult, error) {
+	f.sentMedia = append(f.sentMedia, mediaIDs)
 	f.calls = append(f.calls, p)
 	f.ids = append(f.ids, shopifyID)
 	if f.fail != nil {
@@ -38,6 +51,22 @@ func (f *fakeStore) SetProduct(_ context.Context, p shopify.Product, shopifyID s
 		VariantIDs: map[string]string{}}
 	for _, v := range p.Variants {
 		res.VariantIDs[v.SKU] = "gid://shopify/ProductVariant/" + v.SKU
+	}
+	// Known images keep their id; new ones get one. An address containing
+	// "broken" fails to load.
+	f.media = map[string]string{}
+	for _, u := range p.ImageURLs {
+		id := mediaIDs[u]
+		if id == "" {
+			f.nextMedia++
+			id = "gid://shopify/MediaImage/" + strconv.Itoa(f.nextMedia)
+		}
+		res.MediaIDs = append(res.MediaIDs, id)
+		if strings.Contains(u, "broken") {
+			f.media[id] = "FAILED"
+		} else {
+			f.media[id] = "READY"
+		}
 	}
 	return res, nil
 }
@@ -188,5 +217,62 @@ func TestSyncStopsWhenWritingIsNotAllowed(t *testing.T) {
 	// A switched-off sync is no fault of the product: no error, no task.
 	if got := one(t, pool, `SELECT coalesce(l.last_error, 'none') || ' ' || (SELECT count(*) FROM task) FROM shopify_listing l`); got != "none 0" {
 		t.Errorf("after refused run: %s", got)
+	}
+}
+
+func TestSyncKeepsImagesAndReportsBrokenOnes(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO product (brand, name, image_urls) VALUES ('Beispielrad', 'City 3', '["https://img.test/a.jpg", "https://img.test/broken.jpg"]');
+		INSERT INTO variant (product_id, sku, price_cents) VALUES (1, '10001', 89900);
+		INSERT INTO shopify_listing (product_id, wanted) VALUES (1, true);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{}
+	res, err := shopsync.Run(ctx, pool, store, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The product itself went through; the image that failed is reported.
+	if res.Synced != 1 || !strings.Contains(res.Products[0].Error, "https://img.test/broken.jpg") {
+		t.Fatalf("run: %+v", res)
+	}
+	if got := one(t, pool, `SELECT media_ids::text || ' | ' || last_error FROM shopify_listing`); got !=
+		`{"https://img.test/a.jpg": "gid://shopify/MediaImage/1"} | Shopify konnte diese Bilder nicht laden: https://img.test/broken.jpg` {
+		t.Errorf("listing: %s", got)
+	}
+	if got := one(t, pool, `SELECT title || ' | ' || detail FROM task WHERE kind = 'sync_failed' AND status = 'open'`); got !=
+		"Bilder fehlen in Shopify: Beispielrad City 3 | Shopify konnte diese Bilder nicht laden: https://img.test/broken.jpg" {
+		t.Errorf("image task: %s", got)
+	}
+
+	// The next change sends the loaded image by its id, so Shopify keeps it,
+	// and the broken one again by address.
+	if _, err := pool.Exec(ctx, `UPDATE variant SET price_cents = 84900`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := shopsync.Run(ctx, pool, store, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	sent := store.sentMedia[len(store.sentMedia)-1]
+	if len(sent) != 1 || sent["https://img.test/a.jpg"] != "gid://shopify/MediaImage/1" {
+		t.Errorf("media ids sent with the second sync: %v", sent)
+	}
+	if n := one(t, pool, `SELECT count(*)::text FROM task WHERE kind = 'sync_failed' AND status = 'open'`); n != "1" {
+		t.Errorf("open image tasks = %s, want 1", n)
+	}
+
+	// The broken image is removed from the product: the task is closed.
+	if _, err := pool.Exec(ctx, `UPDATE product SET image_urls = '["https://img.test/a.jpg"]'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := shopsync.Run(ctx, pool, store, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := one(t, pool, `SELECT coalesce(l.last_error, 'ok') || ' ' || (SELECT count(*) FROM task WHERE kind = 'sync_failed' AND status = 'open')
+		FROM shopify_listing l`); got != "ok 0" {
+		t.Errorf("after removing the broken image: %s", got)
 	}
 }

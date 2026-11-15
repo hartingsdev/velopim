@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -679,7 +680,11 @@ type planStore struct {
 	err  error
 }
 
-func (s *planStore) SetProduct(_ context.Context, p shopify.Product, id string) (shopify.SetResult, error) {
+func (s *planStore) WaitForMedia(context.Context, string, time.Duration) ([]shopify.MediaState, error) {
+	return nil, nil
+}
+
+func (s *planStore) SetProduct(_ context.Context, p shopify.Product, id string, _ map[string]string) (shopify.SetResult, error) {
 	if s.err != nil {
 		return shopify.SetResult{}, s.err
 	}

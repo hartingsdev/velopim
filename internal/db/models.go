@@ -142,6 +142,7 @@ type ShopifyListing struct {
 	SyncedHash       *string
 	LastSyncedAt     *time.Time
 	LastError        *string
+	MediaIds         []byte
 }
 
 type Source struct {

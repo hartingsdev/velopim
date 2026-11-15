@@ -31,7 +31,7 @@ func TestLiveProductSet(t *testing.T) {
 			{SKU: "LIVE-2", OptionValues: []string{"54"}, PriceCents: 89900, Sellable: false, DeliveryText: "Derzeit nicht lieferbar"},
 		}}
 
-	created, err := c.SetProduct(ctx, p, "")
+	created, err := c.SetProduct(ctx, p, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestLiveProductSet(t *testing.T) {
 	}
 
 	// The same input again changes nothing and creates no second product.
-	again, err := c.SetProduct(ctx, p, created.ProductID)
+	again, err := c.SetProduct(ctx, p, created.ProductID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestLiveProductSet(t *testing.T) {
 	p.Published = true
 	p.Variants[0].Sellable, p.Variants[1].Sellable = false, true
 	p.Variants = append(p.Variants, Variant{SKU: "LIVE-3", OptionValues: []string{"58"}, PriceCents: 79900, Sellable: true, DeliveryText: "Sofort lieferbar"})
-	changed, err := c.SetProduct(ctx, p, created.ProductID)
+	changed, err := c.SetProduct(ctx, p, created.ProductID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestLiveProductSet(t *testing.T) {
 
 	// A variant missing from the input is removed.
 	p.Variants = p.Variants[:2]
-	removed, err := c.SetProduct(ctx, p, created.ProductID)
+	removed, err := c.SetProduct(ctx, p, created.ProductID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
