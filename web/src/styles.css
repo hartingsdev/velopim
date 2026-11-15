@@ -281,3 +281,93 @@ summary {
   font-weight: normal;
   font-size: 0.8rem;
 }
+
+nav {
+  flex-wrap: wrap;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.variants .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.variants td:last-child,
+.variants th:last-child {
+  padding-right: 0;
+}
+
+.split {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.split legend {
+  padding: 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+input[type="checkbox"] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.error ul {
+  margin: 0.3rem 0;
+  padding-left: 1.2rem;
+}
+
+.rule-form .fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.rule-form .fields label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.rule-form .fields input,
+.rule-form .fields select,
+select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  min-width: 0;
+}
+
+.check {
+  margin-top: 0.6rem;
+}
+
+.meta button {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+}

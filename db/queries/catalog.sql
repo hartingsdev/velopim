@@ -33,13 +33,9 @@ INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, o
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: ListProducts :many
-SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
-       count(v.id) AS variant_count,
-       min(v.price_cents) AS min_price_cents, max(v.price_cents) AS max_price_cents,
-       count(v.id) FILTER (WHERE v.price_cents IS NULL) AS unpriced_count
-FROM product p LEFT JOIN variant v ON v.product_id = p.id
-GROUP BY p.id
-ORDER BY p.brand, p.name, p.model_year, p.id
+SELECT id, brand, name, model_year, category, status, option_names, created_at
+FROM product
+ORDER BY brand, name, model_year, id
 LIMIT $1;
 
 -- name: ListVariantsOfProducts :many

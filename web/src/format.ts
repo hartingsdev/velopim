@@ -90,3 +90,23 @@ const priorityLabels: Record<number, string> = { 1: "Hoch", 2: "Normal", 3: "Nie
 export function priorityLabel(priority: number): string {
   return priorityLabels[priority] ?? String(priority);
 }
+
+export function axisLabel(axis: string): string {
+  if (axis === "color") return "Farbe";
+  if (axis === "frame_size") return "Rahmenhöhe";
+  return axis.startsWith("attributes.") ? axis.slice("attributes.".length) : axis;
+}
+
+export function availabilityLabel(status: string | null): string {
+  return status ? (availabilityLabels[status] ?? status) : "–";
+}
+
+export function formatPrice(cents: number | null): string {
+  return cents === null ? "–" : formatCents(cents);
+}
+
+const productStatusLabels: Record<string, string> = { draft: "Entwurf", active: "Aktiv", archived: "Archiviert" };
+
+export function productStatusLabel(status: string): string {
+  return productStatusLabels[status] ?? status;
+}

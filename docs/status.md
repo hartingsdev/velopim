@@ -10,22 +10,24 @@
 | Änderungserkennung | `actions` |
 | Import-Pipeline mit Rohdatenablage, Aktionen und Tasks; neue Artikel als ein Task je Modell | `importer` |
 | Task-Entscheidung | `tasks` |
-| Gruppierung zu Produkten mit Trennmerkmalen (reine Funktion, nicht angebunden) | `catalog` |
+| Gruppierung zu Produkten mit Trennmerkmalen | `catalog` |
+| Eigener Katalog: Freigabe eines Modells legt Produkte (Entwurf) und Varianten mit eigener Artikelnummer und kalkuliertem Preis an | `catalog`, `tasks` |
 | Shopify-Projektion und Diff | `shopify` |
-| HTTP-API für Tasks und Importläufe | `api` |
+| HTTP-API für Tasks, Importläufe, Produkte und Kalkulationsregeln | `api` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
-| Oberfläche: offene Aufgaben mit Freigeben/Ablehnen und Variantenliste je Modell, erledigte Aufgaben, Importläufe | `web` |
+| Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale; erledigte Aufgaben; Produktliste; Importläufe; Kalkulationsregeln | `web` |
 
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
-- Eigener Katalog in der Datenbank: bei Freigabe eines Modells Produkte und Varianten aus der Gruppierung anlegen, Trennmerkmale im Task wählen und speichern
-- Übernahme freigegebener Aktionen in den Katalog (eine Freigabe wird bisher nur protokolliert)
-- Betragsgleiche Preissenkung als Vorschlag
+- Übernahme freigegebener Änderungen in den Katalog: Preis, Verfügbarkeit, Texte, Bilder, Deaktivierung (bisher legt nur die Freigabe eines neuen Modells etwas an)
+- Betragsgleiche Preisänderung als Vorschlag und Regeln dafür ([26](decisions/0026-price-follow-rules.md))
+- Auswahl „in den Store“ und Bearbeiten von Produkten (Preis, Texte, Trennmerkmale ändern)
+- Veröffentlichen-Task ([25](decisions/0025-publish-task.md))
 - Nutzungsrichtlinie in der Pipeline
 - Shopify-API-Client mit Dry-Run
-- Produktansicht mit Feldherkunft und internen Notizen
-- Pflege von Regeln, Quellen und Kalkulation in der Oberfläche
+- Produktansicht mit Feldherkunft und internen Notizen (die Produktliste zeigt bisher nur Varianten und Preise)
+- Pflege von Regeln und Quellen in der Oberfläche
 - River-Jobs
 - Hartje-Konnektor (Format unbekannt)
 

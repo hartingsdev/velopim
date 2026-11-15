@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -199,5 +200,103 @@ func TestImportRunsAndFallbacks(t *testing.T) {
 	}
 	if rec := do(t, h, "GET", "/api/nope", "", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "error") {
 		t.Errorf("unknown path: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestPricingRulesAndModelApproval(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO supplier_item (source_id, sku, brand, name, model_year, color, frame_size, cost_cents, rrp_cents, attributes) VALUES
+		  ('example', '200-001', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000, 89900, '{"Rahmenform": "Wave"}'),
+		  ('example', '200-002', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000, 89900, '{"Rahmenform": "Herren"}');
+		INSERT INTO action (type, status, new_value, decision_reason, model_key)
+		  VALUES ('new_product', 'pending_approval', 'Beispielrad City 3 (2027)', 'no rule matched, approval by default', 'm');
+		INSERT INTO action_item (action_id, supplier_item_id) SELECT 1, id FROM supplier_item;
+		INSERT INTO task (kind, title, priority, action_id) VALUES ('approve_action', 'Neues Modell prüfen', 2, 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	const jsonType = "application/json"
+
+	// Pricing rules: invalid ones are refused, a second PUT for the same
+	// scope replaces the first.
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"unknown mode", `{"brand":"","category":"","config":{"mode":"magic","value":1.5}}`, http.StatusUnprocessableEntity},
+		{"factor zero", `{"brand":"","category":"","config":{"mode":"markup","value":0}}`, http.StatusUnprocessableEntity},
+		{"unknown rounding", `{"brand":"","category":"","config":{"mode":"markup","value":1.5,"rounding":"up"}}`, http.StatusUnprocessableEntity},
+		{"global rule", `{"brand":"","category":"","config":{"mode":"markup","value":2,"vat_pct":19,"rounding":"none"}}`, http.StatusOK},
+		{"replace it", `{"brand":"","category":"","config":{"mode":"markup","value":1.5,"vat_pct":19,"rounding":"end_99","cap_at_rrp":true}}`, http.StatusOK},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "PUT", "/api/pricing-rules", jsonType, c.body); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+	var rules struct {
+		Rules []PricingRule `json:"rules"`
+	}
+	rec := do(t, h, "GET", "/api/pricing-rules", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &rules); err != nil {
+		t.Fatal(err)
+	}
+	if len(rules.Rules) != 1 || rules.Rules[0].Config.Value != 1.5 || !rules.Rules[0].Config.CapAtRRP {
+		t.Fatalf("rules: %+v", rules.Rules)
+	}
+
+	// The task shows purchase price, RRP and the calculated price:
+	// 500 € × 1.5 × 1.19 = 892.50 €, rounded to 892.99 €, below the RRP.
+	list := getTasks(t, h, "open")
+	if len(list.Tasks) != 1 || len(list.Tasks[0].Variants) != 2 || list.Tasks[0].LockedSplitBy != nil {
+		t.Fatalf("tasks: %+v", list.Tasks)
+	}
+	v := list.Tasks[0].Variants[0]
+	if v.CostCents == nil || *v.CostCents != 50000 || v.RRPCents == nil || *v.RRPCents != 89900 ||
+		v.PriceCents == nil || *v.PriceCents != 89299 || v.Attributes["Rahmenform"] == "" {
+		t.Errorf("variant in task: %+v", v)
+	}
+
+	// Same color and frame size: approval is refused until the model is
+	// split by the attribute that tells the articles apart.
+	if rec := do(t, h, "POST", "/api/tasks/1/decision", jsonType, `{"approve":true}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "nicht unterscheidbar") {
+		t.Fatalf("blocked approval: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(t, h, "POST", "/api/tasks/1/decision", jsonType, `{"approve":true,"split_by":["attributes.Rahmenform"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("approval with split: %d %s", rec.Code, rec.Body)
+	}
+
+	var products struct {
+		Products []Product `json:"products"`
+	}
+	rec = do(t, h, "GET", "/api/products", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &products); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range products.Products {
+		for _, v := range p.Variants {
+			got = append(got, p.Name+" "+p.Status+" "+v.SKU+" "+*v.SupplierSKU+" "+strings.Join(v.OptionValues, "/"))
+			if v.PriceCents == nil || *v.PriceCents != 89299 || v.CompareAtCents == nil || *v.CompareAtCents != 89900 {
+				t.Errorf("%s: price %v, compare-at %v", v.SKU, v.PriceCents, v.CompareAtCents)
+			}
+		}
+	}
+	want := "City 3 Herren draft VP-100001 200-002 rot/50, City 3 Wave draft VP-100002 200-001 rot/50"
+	if s := strings.Join(got, ", "); s != want {
+		t.Errorf("products:\n got  %s\n want %s", s, want)
+	}
+
+	// Deleting a rule.
+	path := "/api/pricing-rules/" + strconv.FormatInt(rules.Rules[0].ID, 10)
+	if rec := do(t, h, "DELETE", path, "", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", rec.Code)
+	}
+	if rec := do(t, h, "DELETE", path, "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("second delete: %d", rec.Code)
 	}
 }

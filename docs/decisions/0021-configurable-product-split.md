@@ -1,6 +1,6 @@
 # 21. Produktschnitt je Modell einstellbar
 
-**Status:** Angenommen (Vorgabe des Betreibers); Gruppierung gebaut, Anbindung fehlt
+**Status:** Angenommen (Vorgabe des Betreibers), umgesetzt: Die Trennmerkmale werden bei der Freigabe des Modells gewählt. Nachträgliches Ändern fehlt
 
 ## Kontext
 Zu klären war, was eine Produktseite im Shop ist: ein Modell mit allen Farben oder eine Seite je Farbe. Der Betreiber wollte das je Artikel entscheiden können und nicht auf Farbe beschränken.

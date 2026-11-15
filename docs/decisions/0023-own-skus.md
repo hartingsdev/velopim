@@ -1,6 +1,6 @@
 # 23. Eigene Artikelnummern für Varianten
 
-**Status:** Angenommen (Vorgabe des Betreibers); Format vorläufig
+**Status:** Angenommen (Vorgabe des Betreibers), umgesetzt; Format vorläufig
 
 ## Kontext
 Jede Variante braucht eine SKU, die zu Shopify geht. Zur Wahl standen die Artikelnummer des Lieferanten oder ein eigenes Schema.

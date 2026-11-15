@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"velopim/internal/catalog"
 	"velopim/internal/db"
 	"velopim/internal/tasks"
 )
@@ -40,6 +41,9 @@ type Task struct {
 	Item        *TaskItem   `json:"item"`
 	// Variants lists the supplier items of a new-model task.
 	Variants []TaskItem `json:"variants"`
+	// LockedSplitBy is set when the model already has products: their cut
+	// applies and cannot be chosen again.
+	LockedSplitBy []string `json:"locked_split_by"`
 }
 
 // TaskAction is the proposed change a task asks to approve.
@@ -61,6 +65,13 @@ type TaskItem struct {
 	ModelYear *int32 `json:"model_year"`
 	Color     string `json:"color"`
 	FrameSize string `json:"frame_size"`
+	// Only filled for the variants of a new-model task. PriceCents is what
+	// the matching pricing rule calculates; null without a rule.
+	Category   string            `json:"category"`
+	CostCents  *int64            `json:"cost_cents"`
+	RRPCents   *int64            `json:"rrp_cents"`
+	PriceCents *int64            `json:"price_cents"`
+	Attributes map[string]string `json:"attributes"`
 }
 
 // TaskList is the response of GET /api/tasks.
@@ -88,6 +99,9 @@ type ImportRun struct {
 type Decision struct {
 	Approve bool   `json:"approve"`
 	Note    string `json:"note"`
+	// SplitBy lists the axes that separate products when a new model is
+	// approved: "color", "frame_size" or "attributes.<key>".
+	SplitBy []string `json:"split_by"`
 }
 
 type server struct {
@@ -106,6 +120,10 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/decision", s.decideTask)
 	mux.HandleFunc("GET /api/import-runs", s.listImportRuns)
+	mux.HandleFunc("GET /api/products", s.listProducts)
+	mux.HandleFunc("GET /api/pricing-rules", s.listPricingRules)
+	mux.HandleFunc("PUT /api/pricing-rules", s.putPricingRule)
+	mux.HandleFunc("DELETE /api/pricing-rules/{id}", s.deletePricingRule)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -139,31 +157,12 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Closed: counts.Closed}
-	var actionIDs []int64
 	for _, row := range rows {
 		out.Tasks = append(out.Tasks, taskFromRow(row))
-		if row.ActionID != nil && row.Sku == nil {
-			actionIDs = append(actionIDs, *row.ActionID)
-		}
 	}
-	if len(actionIDs) > 0 {
-		items, err := q.ListActionItems(r.Context(), actionIDs)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		byAction := map[int64][]TaskItem{}
-		for _, it := range items {
-			byAction[it.ActionID] = append(byAction[it.ActionID], TaskItem{SourceID: it.SourceID, SKU: it.Sku,
-				Brand: it.Brand, Name: it.Name, ModelYear: it.ModelYear, Color: it.Color, FrameSize: it.FrameSize})
-		}
-		for i, row := range rows {
-			if row.ActionID != nil {
-				if v := byAction[*row.ActionID]; v != nil {
-					out.Tasks[i].Variants = v
-				}
-			}
-		}
+	if err := s.addModelDetails(r.Context(), q, rows, out.Tasks); err != nil {
+		internalError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -191,18 +190,20 @@ func (s *server) decideTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid task id")
 		return
 	}
-	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
-		writeError(w, http.StatusUnsupportedMediaType, "content type must be application/json")
-		return
-	}
 	var d Decision
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&d); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if !readJSON(w, r, &d) {
 		return
 	}
-	err = tasks.Decide(r.Context(), s.pool, id, d.Approve, s.actor, d.Note, nil)
+	splitBy := make([]catalog.Axis, len(d.SplitBy))
+	for i, a := range d.SplitBy {
+		splitBy[i] = catalog.Axis(a)
+	}
+	err = tasks.Decide(r.Context(), s.pool, id, d.Approve, s.actor, d.Note, splitBy)
+	var blocked *catalog.BlockedError
+	if errors.As(err, &blocked) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "model cannot be created as cut", "issues": blocked.Issues})
+		return
+	}
 	if errors.Is(err, tasks.ErrNotOpen) {
 		writeError(w, http.StatusConflict, "task is not open")
 		return
@@ -227,6 +228,22 @@ func (s *server) listImportRuns(w http.ResponseWriter, r *http.Request) {
 			StartedAt: row.StartedAt, FinishedAt: row.FinishedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+}
+
+// readJSON decodes a JSON request body. It answers the request itself and
+// returns false when the body is not acceptable.
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "content type must be application/json")
+		return false
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+	return true
 }
 
 func str(s *string) string {

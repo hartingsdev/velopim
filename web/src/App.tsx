@@ -1,19 +1,50 @@
 import { useCallback, useEffect, useState } from "react";
-import { listImportRuns, listTasks, type ImportRun, type TaskList } from "./api";
+import {
+  listImportRuns,
+  listPricingRules,
+  listProducts,
+  listTasks,
+  type ImportRun,
+  type PricingRule,
+  type Product,
+  type TaskList,
+} from "./api";
 import { ImportRuns } from "./ImportRuns";
+import { Pricing } from "./Pricing";
+import { Products } from "./Products";
 import { Tasks } from "./Tasks";
 
-type View = "open" | "closed" | "imports";
+const views = ["open", "closed", "products", "imports", "pricing"] as const;
+type View = (typeof views)[number];
 
 function viewFromHash(): View {
-  const hash = window.location.hash.slice(1);
-  return hash === "closed" || hash === "imports" ? hash : "open";
+  const hash = window.location.hash.slice(1) as View;
+  return views.includes(hash) ? hash : "open";
+}
+
+type Data =
+  | { view: "open" | "closed"; tasks: TaskList }
+  | { view: "products"; products: Product[] }
+  | { view: "imports"; runs: ImportRun[] }
+  | { view: "pricing"; rules: PricingRule[] };
+
+async function fetchData(view: View): Promise<Data> {
+  switch (view) {
+    case "products":
+      return { view, products: await listProducts() };
+    case "imports":
+      return { view, runs: await listImportRuns() };
+    case "pricing":
+      return { view, rules: await listPricingRules() };
+    default:
+      return { view, tasks: await listTasks(view) };
+  }
 }
 
 export function App() {
   const [view, setView] = useState<View>(viewFromHash);
-  const [tasks, setTasks] = useState<TaskList | null>(null);
-  const [runs, setRuns] = useState<ImportRun[] | null>(null);
+  const [data, setData] = useState<Data | null>(null);
+  const [openCount, setOpenCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,11 +55,9 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      if (view === "imports") {
-        setRuns(await listImportRuns());
-      } else {
-        setTasks(await listTasks(view));
-      }
+      const next = await fetchData(view);
+      setData(next);
+      if (next.view === "open" || next.view === "closed") setOpenCount(next.tasks.open);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -36,25 +65,29 @@ export function App() {
   }, [view]);
 
   useEffect(() => {
-    setTasks(null);
     void load();
   }, [load]);
 
-  const tab = (target: View, label: string, count?: number) => (
+  const tab = (target: View, label: string, count?: number | null) => (
     <a href={`#${target}`} className={view === target ? "tab active" : "tab"} aria-current={view === target}>
       {label}
-      {count !== undefined && <span className="count">{count}</span>}
+      {count != null && <span className="count">{count}</span>}
     </a>
   );
+
+  // Data of another view is still on screen until the new one has loaded.
+  const current = data?.view === view ? data : null;
 
   return (
     <>
       <header>
         <h1>velopim</h1>
         <nav>
-          {tab("open", "Aufgaben", tasks?.open)}
+          {tab("open", "Aufgaben", openCount)}
           {tab("closed", "Erledigt")}
+          {tab("products", "Produkte")}
           {tab("imports", "Importe")}
+          {tab("pricing", "Kalkulation")}
         </nav>
       </header>
       <main>
@@ -66,11 +99,12 @@ export function App() {
             </button>
           </p>
         )}
-        {view === "imports" ? (
-          runs && <ImportRuns runs={runs} />
-        ) : (
-          tasks && <Tasks list={tasks} closed={view === "closed"} onChanged={load} onError={setError} />
+        {current && (current.view === "open" || current.view === "closed") && (
+          <Tasks list={current.tasks} closed={current.view === "closed"} onChanged={load} onError={setError} />
         )}
+        {current?.view === "products" && <Products products={current.products} />}
+        {current?.view === "imports" && <ImportRuns runs={current.runs} />}
+        {current?.view === "pricing" && <Pricing rules={current.rules} onChanged={load} onError={setError} />}
       </main>
     </>
   );

@@ -1,6 +1,6 @@
 # 24. Kalkulation in der Oberfläche pflegen, Preise im Freigabe-Task zeigen
 
-**Status:** Angenommen (Vorgabe des Betreibers)
+**Status:** Angenommen (Vorgabe des Betreibers), umgesetzt
 
 ## Kontext
 Faktor, Rundung und UVP-Obergrenze waren nicht festgelegt. Der Betreiber will sie selbst einstellen und bei der Entscheidung die UVP sehen.

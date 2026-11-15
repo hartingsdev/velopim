@@ -11,11 +11,11 @@ Maßgeblich ist `db/migrations/`. Diese Seite erklärt, wozu die Tabellen da sin
 - **`supplier_item`:** normalisierte Sicht je Quelle: Artikelnummer, EAN, Herstellernummer, Marke, Bezeichnung, Modelljahr, Kategorie, Farbe, Rahmenhöhe, Beschreibung, Bilder, EK (netto), UVP (brutto), Attribute, Verfügbarkeit. Zeigt immer den letzten Stand des Lieferanten ([12](decisions/0012-supplier-view-always-current.md)). `active = false`, sobald der Artikel im Feed fehlt.
 
 ## Eigener Katalog
-- **`product`:** ein Produkt, im Standard je Modell und Modelljahr, mit Verweis auf den Vorgänger. Der Schnitt ist je Modell einstellbar ([21](decisions/0021-configurable-product-split.md)); die Trennmerkmale haben noch keine Spalte.
-- **`variant`:** eine Variante mit eigener SKU, Optionswerten, Verkaufs- und Streichpreis.
+- **`product`:** ein Produkt, im Standard je Modell und Modelljahr, mit Verweis auf den Vorgänger. Der Schnitt ist je Modell einstellbar ([21](decisions/0021-configurable-product-split.md)): `model_key` nennt das Modell, `split_by` die Trennmerkmale, `split_values` die Werte dieses Produkts. Neue Produkte sind Entwürfe.
+- **`variant`:** eine Variante mit eigener Artikelnummer `VP-…` ([23](decisions/0023-own-skus.md)), Optionswerten, Verkaufs- und Streichpreis. Der Preis wird beim Anlegen einmal kalkuliert und bleibt leer, wenn keine Kalkulationsregel passt.
 - **`variant_supplier_item`:** n:m zwischen Variante und Lieferantenartikel, mit einem bevorzugten Lieferanten je Variante ([5](decisions/0005-supplier-item-separate.md)).
 
-Der Katalog ist im Schema angelegt, wird aber noch nicht befüllt.
+Der Katalog wird befüllt, wenn ein neues Modell freigegeben wird (`catalog.CreateFromAction`).
 
 ## Steuerung
 - **`usage_policy`:** je Quelle und Marke pro Feldgruppe (Bilder, Texte, Preise, Attribute): `use`, `internal_only` oder `ignore`. Noch nicht in der Pipeline ausgewertet.

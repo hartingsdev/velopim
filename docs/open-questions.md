@@ -5,7 +5,10 @@
 - **Varianten bei Hartje:** flach oder Eltern-Kind? Sind Modellname, Farbe und Rahmenform sauber genug für die Gruppierung?
 - **Development-Store und API-Token:** fehlen. Das Token kommt nur als Umgebungsvariable, nie in den Chat oder ins Repository.
 - **Lieferzeit im Theme:** Namespace und Key des Metafelds.
-- **Kalkulation:** Faktor, Rundung und UVP als Obergrenze sind nicht festgelegt.
+- **Kalkulation:** Die Werte pflegt der Betreiber unter „Kalkulation“; festgelegt hat er noch keine. In der lokalen Datenbank steht eine Testregel (Faktor 1,6, ,99, höchstens UVP), die keine Vorgabe ist.
+- **Format der eigenen Artikelnummern:** `VP-100001` ist vorläufig ([23](decisions/0023-own-skus.md)).
+- **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie in den Katalog übernommen; die Nutzungsrichtlinie ist noch nicht eingebaut.
+- **Preise folgen dem EK ([26](decisions/0026-price-follow-rules.md)):** „Nicht mitgehen, weil noch Lagerbestand da ist“ geht erst, wenn Eigenbestand erfasst wird.
 - **Preisregel ([18](decisions/0018-price-changes-need-approval.md)):** Was passiert bei EK-Erhöhungen? Wird der Betrag eins zu eins vom Ladenpreis abgezogen (Annahme bisher) oder brutto umgerechnet?
 - **Schutzregeln ([13](decisions/0013-guard-rules.md)):** vom Betreiber nicht ausdrücklich bestätigt.
 - **Vorläufige Entscheidungen ohne Betreiber:** handgepflegte API-Typen ([19](decisions/0019-handwritten-api-types.md)), kein Login ([20](decisions/0020-no-login-localhost.md)).
@@ -14,7 +17,10 @@
 - **Viele Tasks beim Erstimport:** Neue Artikel kommen je Modell als ein Task ([22](decisions/0022-new-model-one-task.md)), ein ganzer Katalog ergibt trotzdem hunderte. Die Taskliste zeigt höchstens 200 Einträge; Filter und Sammelfreigabe fehlen.
 - **Modellerkennung:** exakt gleiche Marke, Bezeichnung und Modelljahr. Steckt die Farbe in der Bezeichnung, zerfällt ein Modell.
 - **Doppelte Sammel-Tasks:** Jeder Import mit Datenproblemen legt einen neuen Task an, auch bei denselben Problemen wie im Lauf davor.
-- **Freigaben ohne Wirkung:** Der eigene Katalog fehlt, eine Freigabe wird nur protokolliert.
+- **Freigaben ohne Wirkung:** Nur die Freigabe eines neuen Modells ändert den Katalog. Freigegebene Preis-, Verfügbarkeits-, Text- und Bildänderungen werden bisher nur protokolliert.
+- **Nachgelieferte Varianten:** Sie kommen zum bestehenden Produkt, ohne zu prüfen, ob dessen Optionen passen oder ob es die Kombination dort schon gibt.
+- **Fehlende Optionswerte:** Eine Variante ohne Farbe oder Rahmenhöhe wird angelegt; erst die Shopify-Prüfung würde sie ablehnen.
+- **Produktdaten vom ersten Artikel:** Kategorie und Beschreibung des Produkts stammen vom ersten Artikel der Gruppe.
 - **Angehaltener Import:** Es gibt noch keinen Weg, einen angehaltenen Lauf zu bestätigen.
 - **Englische Texte:** Meldungen zu Datenproblemen und Regelnamen sind englisch; die Oberfläche übersetzt nur die Entscheidungsgründe.
 - **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.

@@ -258,29 +258,21 @@ func (q *Queries) ListModelSplits(ctx context.Context, modelKeys []string) ([]Li
 }
 
 const listProducts = `-- name: ListProducts :many
-SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
-       count(v.id) AS variant_count,
-       min(v.price_cents) AS min_price_cents, max(v.price_cents) AS max_price_cents,
-       count(v.id) FILTER (WHERE v.price_cents IS NULL) AS unpriced_count
-FROM product p LEFT JOIN variant v ON v.product_id = p.id
-GROUP BY p.id
-ORDER BY p.brand, p.name, p.model_year, p.id
+SELECT id, brand, name, model_year, category, status, option_names, created_at
+FROM product
+ORDER BY brand, name, model_year, id
 LIMIT $1
 `
 
 type ListProductsRow struct {
-	ID            int64
-	Brand         string
-	Name          string
-	ModelYear     *int32
-	Category      string
-	Status        string
-	OptionNames   []byte
-	CreatedAt     time.Time
-	VariantCount  int64
-	MinPriceCents interface{}
-	MaxPriceCents interface{}
-	UnpricedCount int64
+	ID          int64
+	Brand       string
+	Name        string
+	ModelYear   *int32
+	Category    string
+	Status      string
+	OptionNames []byte
+	CreatedAt   time.Time
 }
 
 func (q *Queries) ListProducts(ctx context.Context, limit int32) ([]ListProductsRow, error) {
@@ -301,10 +293,6 @@ func (q *Queries) ListProducts(ctx context.Context, limit int32) ([]ListProducts
 			&i.Status,
 			&i.OptionNames,
 			&i.CreatedAt,
-			&i.VariantCount,
-			&i.MinPriceCents,
-			&i.MaxPriceCents,
-			&i.UnpricedCount,
 		); err != nil {
 			return nil, err
 		}

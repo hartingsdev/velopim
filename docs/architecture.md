@@ -26,7 +26,7 @@ internal/rules/          Regel-Engine
 internal/actions/        Änderungserkennung zwischen zwei Importen
 internal/importer/       Import-Pipeline (Datenbank)
 internal/tasks/          Entscheidung über Tasks
-internal/catalog/        Gruppierung von Lieferantenartikeln zu Produkten
+internal/catalog/        Gruppierung zu Produkten, Anlegen von Produkten und Varianten
 internal/shopify/        Projektion und Diff (Sync-Client fehlt noch)
 internal/api/            HTTP-Handler
 internal/db/             von sqlc generiert, nicht von Hand ändern
@@ -44,7 +44,7 @@ Die Fachlogik (`rules`, `pricing`, `availability`, `actions`, `catalog`, `shopif
 1. **Holen:** Ein Konnektor liest die Lieferung. Die Originaldatei wird unverändert mit Hash abgelegt.
 2. **Normalisieren:** Jeder Datensatz wird ein `supplier_item`. Eine neue Rohversion entsteht nur, wenn sich der Inhalt geändert hat. Die Verfügbarkeit wird über das Mapping der Quelle bestimmt.
 3. **Vergleichen:** Unterschiede zum vorigen Stand werden Aktionen. Die Regel-Engine entscheidet: automatisch oder Freigabe. Eine Freigabe wird ein Task. Neue Artikel werden je Modell zu einer Aktion zusammengefasst ([22](decisions/0022-new-model-one-task.md)).
-4. **Übernehmen:** Freigegebene und automatische Aktionen ändern den eigenen Katalog und schreiben `field_change`. *Noch nicht gebaut.*
+4. **Übernehmen:** Freigegebene und automatische Aktionen ändern den eigenen Katalog und schreiben `field_change`. *Gebaut für neue Modelle (Freigabe legt Produkte und Varianten an), für alle anderen Änderungen noch nicht.*
 5. **Projizieren:** Aus dem Katalog wird die Shopify-Projektion berechnet und mit dem letzten Sync-Stand verglichen.
 6. **Synchronisieren:** Unterschiede gehen als Jobs an Shopify (idempotent, Rate Limits, Wiederholungen). Fehler erzeugen einen Task. *Noch nicht gebaut.*
 
@@ -61,7 +61,11 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 |---|---|
 | `GET /api/health` | Lebenszeichen |
 | `GET /api/tasks?status=open\|closed` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells und Zählern |
-| `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}`; 409, wenn der Task nicht mehr offen ist |
+| `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string, "split_by": [..]}`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
+| `GET /api/products` | Produkte mit Varianten, Preisen und bevorzugtem Lieferantenartikel (höchstens 200) |
+| `GET /api/pricing-rules` | Kalkulationsregeln |
+| `PUT /api/pricing-rules` | Regel für Marke und Kategorie anlegen oder ersetzen; 422 bei ungültiger Kalkulation |
+| `DELETE /api/pricing-rules/{id}` | Regel löschen |
 
 Die TypeScript-Typen dazu stehen in `web/src/api.ts` und werden von Hand gepflegt ([19](decisions/0019-handwritten-api-types.md)).
