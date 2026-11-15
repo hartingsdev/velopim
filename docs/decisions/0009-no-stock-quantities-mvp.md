@@ -13,3 +13,5 @@ velopim schreibt keine Stückzahlen zu Shopify. Es setzt nur, ob eine Variante v
 
 ## Folgen
 Später kann Eigenbestand über eine eigene Shopify-Location dazukommen. Namespace und Key des Metafelds sind noch offen.
+
+Nachtrag: Der Betreiber hat bestätigt, dass ein eigener Bestand nicht gepflegt würde. Eine Bestandsführung in Shopify oder velopim wird deshalb nicht gebaut.
