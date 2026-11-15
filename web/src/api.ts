@@ -113,11 +113,21 @@ export function listTasks(status: "open" | "closed"): Promise<TaskList> {
   return request(`/api/tasks?status=${status}`);
 }
 
-export function decideTask(id: number, approve: boolean, note: string, splitBy: string[] = []): Promise<void> {
+/** Corrections to a proposal, applied when it is approved. */
+export interface Corrections {
+  /** Axes that separate the products of a new model. */
+  split_by?: string[];
+  /** Sales price in cents per supplier article number of a new model. */
+  variant_prices?: Record<string, number>;
+  /** Sales price in cents instead of the proposed one. */
+  price_cents?: number;
+}
+
+export function decideTask(id: number, approve: boolean, note: string, corrections: Corrections = {}): Promise<void> {
   return request(`/api/tasks/${id}/decision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approve, note, split_by: splitBy }),
+    body: JSON.stringify({ approve, note, ...(approve ? corrections : {}) }),
   });
 }
 

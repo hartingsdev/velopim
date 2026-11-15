@@ -16,13 +16,13 @@
 | Betragsgleiche Preisänderung: EK-Änderung schlägt denselben Betrag beim Verkaufspreis vor; Freigabe oder Regel ändert den Preis | `importer`, `tasks`, `catalog` |
 | HTTP-API für Tasks, Importläufe, Produkte und Kalkulationsregeln | `api` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
-| Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale; erledigte Aufgaben; Produktliste; Importläufe; Kalkulationsregeln | `web` |
+| Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale und Korrektur der Preise vor der Freigabe; erledigte Aufgaben; Produktliste; Importläufe; Kalkulationsregeln | `web` |
 
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
 - Übernahme freigegebener Änderungen in den Katalog: Verfügbarkeit, Texte, Bilder, UVP, Deaktivierung (bisher wirken nur neue Modelle und EK-Änderungen)
-- Auswahl „in den Store“ und Bearbeiten von Produkten (Preis, Texte, Trennmerkmale ändern)
+- Auswahl „in den Store“ und Bearbeiten bestehender Produkte (Preis, Texte, Trennmerkmale ändern)
 - Veröffentlichen-Task ([25](decisions/0025-publish-task.md))
 - Nutzungsrichtlinie in der Pipeline
 - Shopify-API-Client mit Dry-Run

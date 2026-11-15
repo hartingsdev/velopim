@@ -106,6 +106,12 @@ type Decision struct {
 	// SplitBy lists the axes that separate products when a new model is
 	// approved: "color", "frame_size" or "attributes.<key>".
 	SplitBy []string `json:"split_by"`
+	// VariantPrices sets the sales price in cents per supplier article
+	// number when a new model is approved.
+	VariantPrices map[string]int64 `json:"variant_prices"`
+	// PriceCents sets the sales price when a purchase price change is
+	// approved, instead of the proposed one.
+	PriceCents *int64 `json:"price_cents"`
 }
 
 type server struct {
@@ -203,10 +209,11 @@ func (s *server) decideTask(w http.ResponseWriter, r *http.Request) {
 	for i, a := range d.SplitBy {
 		splitBy[i] = catalog.Axis(a)
 	}
-	err = tasks.Decide(r.Context(), s.pool, id, d.Approve, s.actor, d.Note, splitBy)
+	err = tasks.Decide(r.Context(), s.pool, id, tasks.Decision{Approve: d.Approve, Actor: s.actor, Note: d.Note,
+		SplitBy: splitBy, VariantPrices: d.VariantPrices, PriceCents: d.PriceCents})
 	var blocked *catalog.BlockedError
 	if errors.As(err, &blocked) {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "model cannot be created as cut", "issues": blocked.Issues})
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "not possible as asked", "issues": blocked.Issues})
 		return
 	}
 	if errors.Is(err, tasks.ErrNotOpen) {

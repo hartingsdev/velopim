@@ -287,7 +287,7 @@ func TestPricingRulesAndModelApproval(t *testing.T) {
 			}
 		}
 	}
-	want := "City 3 Herren draft VP-100001 200-002 rot/50, City 3 Wave draft VP-100002 200-001 rot/50"
+	want := "City 3 Herren draft 10001 200-002 rot/50, City 3 Wave draft 10002 200-001 rot/50"
 	if s := strings.Join(got, ", "); s != want {
 		t.Errorf("products:\n got  %s\n want %s", s, want)
 	}

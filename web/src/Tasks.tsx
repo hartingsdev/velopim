@@ -1,6 +1,17 @@
 import { useState } from "react";
-import { ApiError, decideTask, type Task, type TaskItem, type TaskList } from "./api";
-import { axisLabel, fieldLabel, formatDate, formatPrice, formatValue, priceDelta, priorityLabel, reasonLabel } from "./format";
+import { ApiError, decideTask, type Corrections, type Task, type TaskItem, type TaskList } from "./api";
+import {
+  axisLabel,
+  fieldLabel,
+  formatAmount,
+  formatDate,
+  formatPrice,
+  formatValue,
+  parseAmount,
+  priceDelta,
+  priorityLabel,
+  reasonLabel,
+} from "./format";
 
 interface Props {
   list: TaskList;
@@ -60,15 +71,47 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
   const [busy, setBusy] = useState(false);
   const [splitBy, setSplitBy] = useState<string[]>([]);
   const [issues, setIssues] = useState<string[]>([]);
+  // Prices as typed, keyed by supplier article number; "" is the single
+  // price of a price-change task. Untouched fields are not in here.
+  const [prices, setPrices] = useState<Record<string, string>>({});
   const open = task.status === "open";
   const isApproval = task.action !== null;
   const isModel = task.variants.length > 0;
 
+  /** Collects what was changed in the form; null when a price is not a number. */
+  function corrections(): Corrections | null {
+    const out: Corrections = {};
+    const invalid: string[] = [];
+    if (isModel) {
+      out.split_by = splitBy;
+      const variantPrices: Record<string, number> = {};
+      for (const v of task.variants) {
+        const typed = prices[v.sku];
+        if (typed === undefined || typed.trim() === "") continue;
+        const cents = parseAmount(typed);
+        if (cents === null || cents <= 0) invalid.push(`${v.sku}: „${typed}“ ist kein Preis`);
+        else if (cents !== v.price_cents) variantPrices[v.sku] = cents;
+      }
+      if (Object.keys(variantPrices).length > 0) out.variant_prices = variantPrices;
+    } else if (prices[""] !== undefined && prices[""].trim() !== "") {
+      const cents = parseAmount(prices[""]);
+      if (cents === null || cents <= 0) invalid.push(`„${prices[""]}“ ist kein Preis`);
+      else if (cents !== task.action?.proposed_price_cents) out.price_cents = cents;
+    }
+    if (invalid.length > 0) {
+      setIssues(invalid);
+      return null;
+    }
+    return out;
+  }
+
   async function decide(approve: boolean) {
-    setBusy(true);
     setIssues([]);
+    const changed = approve ? corrections() : {};
+    if (changed === null) return;
+    setBusy(true);
     try {
-      await decideTask(task.id, approve, note.trim(), approve && isModel ? splitBy : []);
+      await decideTask(task.id, approve, note.trim(), changed);
       onError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 422) {
@@ -101,20 +144,33 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
       </div>
       {itemFacts.length > 0 && <p className="item">{itemFacts.join(" · ")}</p>}
       {task.detail && <p>{task.detail}</p>}
-      {isModel && <Variants variants={task.variants} />}
+      {isModel && (
+        <Variants
+          variants={task.variants}
+          prices={open ? prices : null}
+          onPrice={(sku, value) => setPrices({ ...prices, [sku]: value })}
+        />
+      )}
       {isModel && open && (
         <Split variants={task.variants} locked={task.locked_split_by} splitBy={splitBy} onChange={setSplitBy} />
       )}
-      {task.action && <Change action={task.action} />}
+      {task.action && (
+        <Change
+          action={task.action}
+          price={open ? (prices[""] ?? formatAmount(task.action.proposed_price_cents)) : null}
+          onPrice={(value) => setPrices({ ...prices, "": value })}
+        />
+      )}
       {issues.length > 0 && (
         <div className="error" role="alert">
-          So lässt sich das Modell nicht anlegen:
+          So geht die Freigabe nicht:
           <ul>
             {issues.map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
           </ul>
-          Wähle ein Trennmerkmal, das diese Artikel unterscheidet, oder lehne ab.
+          {isModel && issues.some((i) => i.includes("unterscheidbar")) &&
+            "Wähle ein Trennmerkmal, das diese Artikel unterscheidet, oder lehne ab."}
         </div>
       )}
 
@@ -158,7 +214,8 @@ function outcomeLabel(task: Task): string {
   return task.status === "done" ? "Erledigt" : "Verworfen";
 }
 
-function Change({ action }: { action: NonNullable<Task["action"]> }) {
+function Change(props: { action: NonNullable<Task["action"]>; price: string | null; onPrice: (value: string) => void }) {
+  const { action, price, onPrice } = props;
   const delta = action.field.endsWith("_cents") ? priceDelta(action.old, action.new) : null;
   return (
     <div className="change">
@@ -176,8 +233,23 @@ function Change({ action }: { action: NonNullable<Task["action"]> }) {
           <span className="field">Dein Verkaufspreis bei Freigabe</span>
           <span className="old">{formatPrice(action.base_price_cents)}</span>
           <span aria-label="wird zu">→</span>
-          <span className="new">{formatPrice(action.proposed_price_cents)}</span>
-          <span className="delta">{priceDelta(String(action.base_price_cents), String(action.proposed_price_cents))}</span>
+          {price === null ? (
+            <span className="new">{formatPrice(action.proposed_price_cents)}</span>
+          ) : (
+            <span className="amount">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={price}
+                onChange={(e) => onPrice(e.target.value)}
+                aria-label="Verkaufspreis bei Freigabe in Euro"
+              />{" "}
+              €
+            </span>
+          )}
+          <span className="delta">
+            {priceDelta(String(action.base_price_cents), String(parseAmount(price ?? "") ?? action.proposed_price_cents))}
+          </span>
         </p>
       )}
       {action.field === "cost_cents" && action.proposed_price_cents === null && (
@@ -191,7 +263,13 @@ function Change({ action }: { action: NonNullable<Task["action"]> }) {
   );
 }
 
-function Variants({ variants }: { variants: TaskItem[] }) {
+function Variants(props: {
+  variants: TaskItem[];
+  /** Prices as typed; null when the task is closed and nothing can be edited. */
+  prices: Record<string, string> | null;
+  onPrice: (sku: string, value: string) => void;
+}) {
+  const { variants, prices, onPrice } = props;
   const attributeKeys = [...new Set(variants.flatMap((v) => Object.keys(v.attributes ?? {})))].sort();
   const unpriced = variants.some((v) => v.price_cents === null);
   return (
@@ -225,7 +303,22 @@ function Variants({ variants }: { variants: TaskItem[] }) {
                 ))}
                 <td className="num">{formatPrice(v.cost_cents)}</td>
                 <td className="num">{formatPrice(v.rrp_cents)}</td>
-                <td className="num">{formatPrice(v.price_cents)}</td>
+                <td className="num">
+                  {prices === null ? (
+                    formatPrice(v.price_cents)
+                  ) : (
+                    <span className="amount">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={prices[v.sku] ?? formatAmount(v.price_cents)}
+                        onChange={(e) => onPrice(v.sku, e.target.value)}
+                        aria-label={`Verkaufspreis für ${v.sku} in Euro`}
+                      />{" "}
+                      €
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -233,7 +326,8 @@ function Variants({ variants }: { variants: TaskItem[] }) {
       </div>
       {unpriced && (
         <p className="hint">
-          Ohne passende Regel unter <a href="#pricing">Kalkulation</a> werden Varianten ohne Verkaufspreis angelegt.
+          Ohne passende Regel unter <a href="#pricing">Kalkulation</a> und ohne eingetragenen Preis werden Varianten
+          ohne Verkaufspreis angelegt.
         </p>
       )}
     </details>

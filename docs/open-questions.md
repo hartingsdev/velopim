@@ -6,7 +6,6 @@
 - **Development-Store und API-Token:** fehlen. Das Token kommt nur als Umgebungsvariable, nie in den Chat oder ins Repository.
 - **Lieferzeit im Theme:** Namespace und Key des Metafelds.
 - **Kalkulation:** Die Werte pflegt der Betreiber unter „Kalkulation“; festgelegt hat er noch keine. In der lokalen Datenbank steht eine Testregel (Faktor 1,6, ,99, höchstens UVP), die keine Vorgabe ist.
-- **Format der eigenen Artikelnummern:** `VP-100001` ist vorläufig ([23](decisions/0023-own-skus.md)).
 - **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie in den Katalog übernommen; die Nutzungsrichtlinie ist noch nicht eingebaut.
 - **Preise folgen dem EK ([26](decisions/0026-price-follow-rules.md)):** „Nicht mitgehen, weil noch Lagerbestand da ist“ geht erst, wenn Eigenbestand erfasst wird.
 - **Preisregel ([18](decisions/0018-price-changes-need-approval.md)):** Der Betrag wird eins zu eins auf den Ladenpreis übertragen (Annahme), nicht brutto umgerechnet.

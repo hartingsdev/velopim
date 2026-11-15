@@ -23,9 +23,6 @@ func (e *BlockedError) Error() string {
 	return "catalog: not possible as asked: " + strings.Join(e.Issues, "; ")
 }
 
-// SKUPrefix starts every own article number (docs/decisions/0023).
-const SKUPrefix = "VP-"
-
 // CreateFromAction turns the articles of an approved new-model action into
 // products and variants. Run it inside the transaction that approves the
 // action.
@@ -35,7 +32,10 @@ const SKUPrefix = "VP-"
 // products with the same split axes. Articles that left the feed or already
 // have a variant are skipped. Variants get an own article number and, when a
 // pricing rule matches, a sales price; without a rule the price stays empty.
-func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelKey string, splitBy []Axis, actor string) error {
+//
+// prices overrides the calculated sales price per supplier article number;
+// it is how the person approving corrects a price beforehand.
+func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelKey string, splitBy []Axis, prices map[string]int64, actor string) error {
 	rows, err := q.ListActionSupplierItems(ctx, actionID)
 	if err != nil {
 		return err
@@ -75,6 +75,11 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 	}
 	if len(items) == 0 {
 		return nil
+	}
+	for sku, cents := range prices {
+		if cents <= 0 {
+			return &BlockedError{Issues: []string{fmt.Sprintf("Artikel %s: der Verkaufspreis muss größer als 0 sein", sku)}}
+		}
 	}
 
 	// An existing cut of the model wins over the request.
@@ -168,7 +173,8 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 			if err != nil {
 				return err
 			}
-			sku := SKUPrefix + strconv.FormatInt(number, 10)
+			// Own article numbers are plain numbers (docs/decisions/0023).
+			sku := strconv.FormatInt(number, 10)
 			var price, compareAt *int64
 			if cfg, ok := pricing.Pick(priceRules, row.Brand, row.Category); ok && row.CostCents != nil {
 				var rrp int64
@@ -180,6 +186,13 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 					if res.CompareAtCents > 0 {
 						compareAt = &res.CompareAtCents
 					}
+				}
+			}
+			priceReason := reason
+			if corrected, ok := prices[row.Sku]; ok && (price == nil || *price != corrected) {
+				price, compareAt, priceReason = &corrected, nil, "Preis bei der Freigabe festgelegt"
+				if row.RrpCents != nil && *row.RrpCents > corrected {
+					compareAt = row.RrpCents
 				}
 			}
 			variantID, err := q.InsertVariant(ctx, db.InsertVariantParams{
@@ -195,7 +208,10 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 				return err
 			}
 			if price != nil {
-				if err := change("variant", variantID, "price_cents", strconv.FormatInt(*price, 10)); err != nil {
+				value := strconv.FormatInt(*price, 10)
+				if err := q.InsertCatalogFieldChange(ctx, db.InsertCatalogFieldChangeParams{
+					EntityType: "variant", EntityID: variantID, Field: "price_cents", NewValue: &value, Origin: "user",
+					ActionID: &actionID, Actor: &actor, Reason: &priceReason}); err != nil {
 					return err
 				}
 			}
@@ -225,6 +241,32 @@ func ShiftVariantPrice(ctx context.Context, q *db.Queries, variantID, delta int6
 		Origin: origin, ActionID: &actionID, Reason: &reason}
 	if actor != "" {
 		params.Actor = &actor
+	}
+	return q.InsertCatalogFieldChange(ctx, params)
+}
+
+// SetVariantPrice sets a variant's sales price and records the change.
+func SetVariantPrice(ctx context.Context, q *db.Queries, variantID, price int64, actionID int64, actor, reason string) error {
+	if price <= 0 {
+		return &BlockedError{Issues: []string{"Der Verkaufspreis muss größer als 0 sein"}}
+	}
+	old, err := q.GetVariantPrice(ctx, variantID)
+	if err != nil {
+		return err
+	}
+	if old != nil && *old == price {
+		return nil
+	}
+	if err := q.SetVariantPrice(ctx, db.SetVariantPriceParams{ID: variantID, PriceCents: price}); err != nil {
+		return err
+	}
+	newValue := strconv.FormatInt(price, 10)
+	params := db.InsertCatalogFieldChangeParams{
+		EntityType: "variant", EntityID: variantID, Field: "price_cents", NewValue: &newValue,
+		Origin: "user", ActionID: &actionID, Actor: &actor, Reason: &reason}
+	if old != nil {
+		oldValue := strconv.FormatInt(*old, 10)
+		params.OldValue = &oldValue
 	}
 	return q.InsertCatalogFieldChange(ctx, params)
 }

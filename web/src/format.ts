@@ -110,3 +110,15 @@ const productStatusLabels: Record<string, string> = { draft: "Entwurf", active: 
 export function productStatusLabel(status: string): string {
   return productStatusLabels[status] ?? status;
 }
+
+/** Amount for a text field, e.g. "1.899,00". */
+export function formatAmount(cents: number | null): string {
+  return cents === null ? "" : (cents / 100).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Parses "1.899,00", "1899,5" or "1899" into cents; null when it is not an amount. */
+export function parseAmount(text: string): number | null {
+  const cleaned = text.trim().replace(/\s|€/g, "").replace(/\./g, "").replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  return Math.round(Number(cleaned) * 100);
+}

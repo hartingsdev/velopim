@@ -12,7 +12,7 @@ Maßgeblich ist `db/migrations/`. Diese Seite erklärt, wozu die Tabellen da sin
 
 ## Eigener Katalog
 - **`product`:** ein Produkt, im Standard je Modell und Modelljahr, mit Verweis auf den Vorgänger. Der Schnitt ist je Modell einstellbar ([21](decisions/0021-configurable-product-split.md)): `model_key` nennt das Modell, `split_by` die Trennmerkmale, `split_values` die Werte dieses Produkts. Neue Produkte sind Entwürfe.
-- **`variant`:** eine Variante mit eigener Artikelnummer `VP-…` ([23](decisions/0023-own-skus.md)), Optionswerten, Verkaufs- und Streichpreis. Der Preis wird beim Anlegen einmal kalkuliert und bleibt leer, wenn keine Kalkulationsregel passt.
+- **`variant`:** eine Variante mit eigener, kurzer Artikelnummer (ab `10001`) ([23](decisions/0023-own-skus.md)), Optionswerten, Verkaufs- und Streichpreis. Der Preis wird beim Anlegen einmal kalkuliert und bleibt leer, wenn keine Kalkulationsregel passt.
 - **`variant_supplier_item`:** n:m zwischen Variante und Lieferantenartikel, mit einem bevorzugten Lieferanten je Variante ([5](decisions/0005-supplier-item-separate.md)).
 
 Der Katalog wird befüllt, wenn ein neues Modell freigegeben wird (`catalog.CreateFromAction`).

@@ -40,6 +40,17 @@ func (q *Queries) GetPricedVariantOfSupplierItem(ctx context.Context, supplierIt
 	return i, err
 }
 
+const getVariantPrice = `-- name: GetVariantPrice :one
+SELECT price_cents FROM variant WHERE id = $1
+`
+
+func (q *Queries) GetVariantPrice(ctx context.Context, id int64) (*int64, error) {
+	row := q.db.QueryRow(ctx, getVariantPrice, id)
+	var price_cents *int64
+	err := row.Scan(&price_cents)
+	return price_cents, err
+}
+
 const insertCatalogFieldChange = `-- name: InsertCatalogFieldChange :exec
 INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, origin, action_id, actor, reason)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -419,6 +430,38 @@ func (q *Queries) NextVariantNumber(ctx context.Context) (int64, error) {
 	var nextval int64
 	err := row.Scan(&nextval)
 	return nextval, err
+}
+
+const setActionProposedPrice = `-- name: SetActionProposedPrice :exec
+UPDATE action SET proposed_price_cents = $2 WHERE id = $1
+`
+
+type SetActionProposedPriceParams struct {
+	ID                 int64
+	ProposedPriceCents *int64
+}
+
+func (q *Queries) SetActionProposedPrice(ctx context.Context, arg SetActionProposedPriceParams) error {
+	_, err := q.db.Exec(ctx, setActionProposedPrice, arg.ID, arg.ProposedPriceCents)
+	return err
+}
+
+const setVariantPrice = `-- name: SetVariantPrice :exec
+UPDATE variant SET
+    price_cents = $2::bigint,
+    compare_at_cents = CASE WHEN compare_at_cents <= $2::bigint THEN NULL ELSE compare_at_cents END,
+    updated_at = now()
+WHERE id = $1
+`
+
+type SetVariantPriceParams struct {
+	ID         int64
+	PriceCents int64
+}
+
+func (q *Queries) SetVariantPrice(ctx context.Context, arg SetVariantPriceParams) error {
+	_, err := q.db.Exec(ctx, setVariantPrice, arg.ID, arg.PriceCents)
+	return err
 }
 
 const shiftVariantPrice = `-- name: ShiftVariantPrice :one

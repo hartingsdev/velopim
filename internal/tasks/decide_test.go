@@ -73,7 +73,7 @@ func TestApprovingAModelCreatesProducts(t *testing.T) {
 	)
 
 	runImport(t, pool, black52, black56, silver48)
-	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, model), true, "robert", "", []catalog.Axis{catalog.AxisColor}); err != nil {
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, model), tasks.Decision{Approve: true, Actor: "robert", SplitBy: []catalog.Axis{catalog.AxisColor}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,7 +88,7 @@ func TestApprovingAModelCreatesProducts(t *testing.T) {
 	got = query(t, pool, `SELECT string_agg(v.sku || ' ' || v.option_values::text || ' ' || v.price_cents || ' ' ||
 		v.compare_at_cents || ' ' || s.sku || ' ' || vs.preferred, ' | ' ORDER BY v.sku)
 		FROM variant v JOIN variant_supplier_item vs ON vs.variant_id = v.id JOIN supplier_item s ON s.id = vs.supplier_item_id`)
-	want := `VP-100001 ["52"] 178500 199900 100-001 true | VP-100002 ["56"] 178500 199900 100-002 true | VP-100003 ["48"] 178500 199900 100-003 true`
+	want := `10001 ["52"] 178500 199900 100-001 true | 10002 ["56"] 178500 199900 100-002 true | 10003 ["48"] 178500 199900 100-003 true`
 	if got != want {
 		t.Errorf("variants:\n got  %s\n want %s", got, want)
 	}
@@ -106,12 +106,12 @@ func TestApprovingAModelCreatesProducts(t *testing.T) {
 		t.Fatal(err)
 	}
 	runImport(t, pool, black52, black56, silver48, silver52)
-	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, model), true, "robert", "", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, model), tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
 		t.Fatal(err)
 	}
 	got = query(t, pool, `SELECT string_agg(p.name || ' ' || v.sku || ' ' || coalesce(v.price_cents::text, 'no price'), ' | ' ORDER BY v.sku)
 		FROM variant v JOIN product p ON p.id = v.product_id WHERE p.name = 'Trekking 5.4 silber'`)
-	if want := "Trekking 5.4 silber VP-100003 178500 | Trekking 5.4 silber VP-100004 no price"; got != want {
+	if want := "Trekking 5.4 silber 10003 178500 | Trekking 5.4 silber 10004 no price"; got != want {
 		t.Errorf("after a further article:\n got  %s\n want %s", got, want)
 	}
 	if n := query(t, pool, `SELECT count(*)::text FROM product`); n != "2" {
@@ -131,12 +131,12 @@ func TestBlockedModelStaysOpen(t *testing.T) {
 		"200-002;;Beispielrad;City 3;2027;rot;50;520,00;899,00;1")
 	taskID := openModelTask(t, pool, "Beispielrad City 3 (2027)")
 
-	err := tasks.Decide(ctx, pool, taskID, true, "robert", "", nil)
+	err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert"})
 	var blocked *catalog.BlockedError
 	if !errors.As(err, &blocked) || len(blocked.Issues) != 1 || !strings.Contains(blocked.Issues[0], "nicht unterscheidbar") {
 		t.Fatalf("got %v, want a BlockedError about indistinguishable articles", err)
 	}
-	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "", []catalog.Axis{"bogus"}); !errors.As(err, &blocked) {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert", SplitBy: []catalog.Axis{"bogus"}}); !errors.As(err, &blocked) {
 		t.Errorf("unknown axis: got %v, want a BlockedError", err)
 	}
 	got := query(t, pool, `SELECT t.status || ' ' || a.status || ' ' || (SELECT count(*) FROM product)
@@ -146,7 +146,7 @@ func TestBlockedModelStaysOpen(t *testing.T) {
 	}
 
 	// Rejecting works and creates nothing.
-	if err := tasks.Decide(ctx, pool, taskID, false, "robert", "doppelt", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: false, Actor: "robert", Note: "doppelt"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := query(t, pool, `SELECT count(*)::text FROM product`); n != "0" {
@@ -168,7 +168,7 @@ func TestCostChangeMovesTheSalesPriceByTheSameAmount(t *testing.T) {
 	}
 	// Two variants, both created at 1000 € × 1.5 × 1.19 = 1785 €.
 	runImport(t, pool, row("100-001", "52", "1.000,00"), row("100-002", "56", "1.000,00"))
-	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, "Beispielrad Trekking 5.4 (2027)"), true, "robert", "", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, "Beispielrad Trekking 5.4 (2027)"), tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
 		t.Fatal(err)
 	}
 	price := func(supplierSKU string) string {
@@ -203,7 +203,7 @@ func TestCostChangeMovesTheSalesPriceByTheSameAmount(t *testing.T) {
 	if proposal != "100000>98000 178500>176500" {
 		t.Errorf("carried-over proposal = %s", proposal)
 	}
-	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
 		t.Fatal(err)
 	}
 	if p := price("100-001"); p != "176500" {
@@ -224,7 +224,7 @@ func TestCostChangeMovesTheSalesPriceByTheSameAmount(t *testing.T) {
 	if proposal != "98000>103000 176500>181500" {
 		t.Errorf("increase proposal = %s", proposal)
 	}
-	if err := tasks.Decide(ctx, pool, taskID, false, "robert", "Lagerware", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: false, Actor: "robert", Note: "Lagerware"}); err != nil {
 		t.Fatal(err)
 	}
 	if p := price("100-001"); p != "176500" {
@@ -252,5 +252,66 @@ func TestCostChangeMovesTheSalesPriceByTheSameAmount(t *testing.T) {
 	}
 	if p := price("100-002"); p != "177500" {
 		t.Errorf("increase was applied without approval: %s", p)
+	}
+}
+
+func TestCorrectingPricesAtApproval(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO pricing_rule (config) VALUES ('{"mode": "markup", "value": 1.5, "vat_pct": 19}');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	row := func(sku, size, cost string) string {
+		return sku + ";;Beispielrad;Trekking 5.4;2027;schwarz;" + size + ";" + cost + ";1.999,00;4"
+	}
+	prices := func() string {
+		return query(t, pool, `SELECT string_agg(s.sku || '=' || v.price_cents || '/' || coalesce(v.compare_at_cents::text, '-'), ' ' ORDER BY s.sku)
+			FROM variant v JOIN variant_supplier_item vs ON vs.variant_id = v.id JOIN supplier_item s ON s.id = vs.supplier_item_id`)
+	}
+	runImport(t, pool, row("100-001", "52", "1.000,00"), row("100-002", "56", "1.000,00"))
+	taskID := openModelTask(t, pool, "Beispielrad Trekking 5.4 (2027)")
+
+	// A price of zero is refused and leaves the task open.
+	var blocked *catalog.BlockedError
+	err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert", VariantPrices: map[string]int64{"100-001": 0}})
+	if !errors.As(err, &blocked) {
+		t.Fatalf("zero price: got %v, want a BlockedError", err)
+	}
+
+	// One variant gets a corrected price, the other keeps the calculated
+	// one. Above the RRP there is no compare-at price.
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert",
+		VariantPrices: map[string]int64{"100-001": 209900}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := prices(); got != "100-001=209900/- 100-002=178500/199900" {
+		t.Errorf("prices after approval: %s", got)
+	}
+	got := query(t, pool, `SELECT string_agg(new_value || ' ' || reason, ' | ' ORDER BY new_value) FROM field_change WHERE field = 'price_cents'`)
+	if got != "178500 Modell freigegeben | 209900 Preis bei der Freigabe festgelegt" {
+		t.Errorf("field changes: %s", got)
+	}
+
+	// Purchase price drops by 20 €; the proposal would be 1765 €, the
+	// person decides on 1749 € instead.
+	runImport(t, pool, row("100-001", "52", "1.000,00"), row("100-002", "56", "980,00"))
+	err = pool.QueryRow(ctx, `SELECT t.id FROM task t JOIN action a ON a.id = t.action_id WHERE a.field = 'cost_cents' AND t.status = 'open'`).Scan(&taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrected := int64(174900)
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert", PriceCents: &corrected}); err != nil {
+		t.Fatal(err)
+	}
+	if got := prices(); got != "100-001=209900/- 100-002=174900/199900" {
+		t.Errorf("prices after corrected approval: %s", got)
+	}
+	got = query(t, pool, `SELECT fc.old_value || '>' || fc.new_value || ' ' || fc.reason || ' ' || a.base_price_cents || '>' || a.proposed_price_cents
+		FROM field_change fc JOIN action a ON a.id = fc.action_id WHERE a.field = 'cost_cents'`)
+	if got != "178500>174900 Preis bei der Freigabe korrigiert 178500>174900" {
+		t.Errorf("corrected price change: %s", got)
 	}
 }

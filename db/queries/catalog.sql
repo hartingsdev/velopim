@@ -75,3 +75,16 @@ UPDATE variant SET
     updated_at = now()
 WHERE id = $1 AND price_cents IS NOT NULL AND price_cents + sqlc.arg(delta_cents)::bigint > 0
 RETURNING price_cents;
+
+-- name: GetVariantPrice :one
+SELECT price_cents FROM variant WHERE id = $1;
+
+-- name: SetVariantPrice :exec
+UPDATE variant SET
+    price_cents = sqlc.arg(price_cents)::bigint,
+    compare_at_cents = CASE WHEN compare_at_cents <= sqlc.arg(price_cents)::bigint THEN NULL ELSE compare_at_cents END,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: SetActionProposedPrice :exec
+UPDATE action SET proposed_price_cents = $2 WHERE id = $1;

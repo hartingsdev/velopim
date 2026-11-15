@@ -173,13 +173,13 @@ func TestImportPipeline(t *testing.T) {
 		`SELECT t.id FROM task t JOIN action a ON a.id = t.action_id WHERE a.type = 'price_change' AND t.status = 'open'`).Scan(&taskID); err != nil {
 		t.Fatal(err)
 	}
-	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "passt", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert", Note: "passt"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(t, pool, "action WHERE type = 'price_change' AND status = 'approved' AND decided_by = 'robert' AND decision_note = 'passt'"); n != 1 {
 		t.Errorf("action was not approved with actor and note")
 	}
-	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "", nil); !errors.Is(err, tasks.ErrNotOpen) {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert"}); !errors.Is(err, tasks.ErrNotOpen) {
 		t.Errorf("second decision: got %v, want ErrNotOpen", err)
 	}
 }
@@ -270,7 +270,7 @@ func TestNewModelsGetOneTaskEach(t *testing.T) {
 	}
 
 	// Once the model is approved, a later article is a new variant.
-	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "", nil); err != nil {
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
 		t.Fatal(err)
 	}
 	row4 := "100-004;;Beispielrad;Trekking 5.4;2027;silber;52;1.000,00;1.999,00;2;"

@@ -61,7 +61,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 |---|---|
 | `GET /api/health` | Lebenszeichen |
 | `GET /api/tasks?status=open\|closed` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells und Zählern |
-| `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string, "split_by": [..]}`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
+| `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}` plus Korrekturen: `split_by`, `variant_prices`, `price_cents`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
 | `GET /api/products` | Produkte mit Varianten, Preisen und bevorzugtem Lieferantenartikel (höchstens 200) |
 | `GET /api/pricing-rules` | Kalkulationsregeln |
