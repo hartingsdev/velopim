@@ -23,7 +23,7 @@ Pflege:
 - Sprache: Dokumentation und Oberfläche deutsch; Code, Bezeichner, Dateinamen und Commits englisch.
 
 ## Leitplanken
-- Niemals in den Live-Shop schreiben. Sync läuft standardmäßig im Dry-Run, echte Schreibzugriffe nur gegen den Development-Store (`SHOPIFY_WRITE_ENABLED=true` muss explizit gesetzt sein).
+- Niemals in den Live-Shop schreiben. Sync läuft standardmäßig im Dry-Run, echte Schreibzugriffe nur gegen den Development-Store `fahrrad-ass-dev` (`SHOPIFY_WRITE_ENABLED=true` muss explizit gesetzt sein). Die Sperre im Client für Nicht-Development-Stores nicht entfernen oder umgehen.
 - Zugangsdaten nur über Umgebungsvariablen (`.env`, nicht eingecheckt; `.env.example` pflegen).
 - Interne Daten dürfen nie zu Shopify gelangen: Der Sync liest nur aus der Projektion in `internal/shopify`.
 - Hartje-Format und -Zugang sind unbekannt: keine Annahmen treffen.
@@ -40,6 +40,8 @@ Pflege:
 - Nach Änderungen an `db/queries/` oder `db/migrations/`: `sqlc generate`
 - Tests ohne Datenbank: `go test ./...`; mit Datenbank: `TEST_DATABASE_URL="$DATABASE_URL" go test ./...`
 - Oberfläche bauen: in `web/` `npm install && npm run build`, danach `go build -o bin/velopim ./cmd/velopim`. Entwicklung: `npm run dev`.
-- Server: `./bin/velopim serve`. Import: `./bin/velopim import <quelle> <datei>`.
+- Server: `./bin/velopim serve`. Import: `./bin/velopim import <quelle> <datei>`. Shopify: `./bin/velopim shopify-check` (liest nur), `./bin/velopim sync`.
+- Schreibender Test gegen den Development-Store: `SHOPIFY_LIVE_TEST=1 SHOPIFY_WRITE_ENABLED=true go test ./internal/shopify -run Live -v`. Den Schalter nur am Befehl setzen, nicht in der `.env`.
+- Typen der Admin-API nachsehen statt raten: `go run ./cmd/introspect ProductSetInput` (liest nur).
 - Beispieldaten: `testdata/example_source.sql` laden, dann `./bin/velopim import example testdata/example_supplier.csv`.
 - Vor jedem Commit: `gofmt -l .` und `go vet ./...` müssen sauber sein.

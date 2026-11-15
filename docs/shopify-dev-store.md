@@ -24,4 +24,8 @@ SHOPIFY_CLIENT_SECRET=…
 SHOPIFY_WRITE_ENABLED=false
 ```
 
+Im Formular „Create app manually“ genügt: Name, App URL `https://example.com`, „Embed app in Shopify admin“ aus, die Scopes oben. Installiert wird über **Test app** im Kasten „Installs“.
+
+Prüfen, ob die Verbindung steht (liest nur): `./bin/velopim shopify-check`
+
 Ein festes Admin-Token gibt es bei diesem Weg nicht. velopim tauscht Client ID und Secret gegen ein Token, das 24 Stunden gilt, und erneuert es selbst. `SHOPIFY_WRITE_ENABLED` bleibt `false`, bis der Dry-Run geprüft ist.
