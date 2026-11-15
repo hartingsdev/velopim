@@ -6,9 +6,9 @@
 | Regel-Engine | `rules` |
 | Preiskalkulation (Aufschlag, Zielmarge, Rundung, UVP-Deckel) | `pricing` |
 | Verfügbarkeitsmodell mit Mapping | `availability` |
-| CSV-Konnektor | `connector/csvfile` |
+| CSV-Konnektor mit UTF-8 und Windows-1252 (erkannt oder eingestellt) | `connector/csvfile` |
 | Änderungserkennung | `actions` |
-| Import-Pipeline mit Rohdatenablage, Aktionen und Tasks; neue Artikel als ein Task je Modell | `importer` |
+| Import-Pipeline mit Rohdatenablage, Aktionen und Tasks; neue Artikel als ein Task je Modell; angehaltene Lieferung lässt sich bestätigen; Sammel-Task für Datenprobleme wird nicht wiederholt | `importer` |
 | Task-Entscheidung | `tasks` |
 | Gruppierung zu Produkten mit Trennmerkmalen | `catalog` |
 | Eigener Katalog: Freigabe eines Modells legt Produkte (Entwurf) und Varianten mit eigener Artikelnummer und kalkuliertem Preis an | `catalog`, `tasks` |

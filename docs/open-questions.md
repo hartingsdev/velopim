@@ -18,17 +18,14 @@
 ## Bekannte Schwächen
 - **Viele Tasks beim Erstimport:** Neue Artikel kommen je Modell als ein Task ([22](decisions/0022-new-model-one-task.md)), ein ganzer Katalog ergibt trotzdem hunderte. Die Taskliste zeigt höchstens 200 Einträge; Filter und Sammelfreigabe fehlen.
 - **Modellerkennung:** exakt gleiche Marke, Bezeichnung und Modelljahr. Steckt die Farbe in der Bezeichnung, zerfällt ein Modell.
-- **Doppelte Sammel-Tasks:** Jeder Import mit Datenproblemen legt einen neuen Task an, auch bei denselben Problemen wie im Lauf davor.
 - **Freigaben ohne Wirkung:** Aufgaben zu Verfügbarkeit und entfallenen Artikeln sind Hinweise ([27](decisions/0027-availability-is-live.md)). Änderungen an Bezeichnung, Farbe, Rahmenhöhe und Merkmalen werden nur protokolliert.
 - **Alte Preis-Tasks:** Eine EK-Änderung, die vor dem Anlegen des Produkts kam, hat keinen Preisvorschlag; ihre Freigabe ändert nichts.
 - **Nachgelieferte Varianten:** Sie kommen zum bestehenden Produkt, ohne zu prüfen, ob dessen Optionen passen oder ob es die Kombination dort schon gibt.
 - **Fehlende Optionswerte:** Eine Variante ohne Farbe oder Rahmenhöhe wird angelegt; erst die Shopify-Prüfung würde sie ablehnen.
 - **Produktdaten vom ersten Artikel:** Kategorie und Beschreibung des Produkts stammen vom ersten Artikel der Gruppe.
 - **Handänderungen und Lieferant:** Ein von Hand geänderter Text wird überschrieben, wenn später eine Textänderung des Lieferanten freigegeben wird. Es gibt noch keine Sperre je Feld.
-- **Angehaltener Import:** Es gibt noch keinen Weg, einen angehaltenen Lauf zu bestätigen.
-- **Englische Texte:** Meldungen zu Datenproblemen und Regelnamen sind englisch; die Oberfläche übersetzt nur die Entscheidungsgründe.
+- **Alte englische Texte:** Datenprobleme aus Importen vor der Umstellung stehen noch englisch in der Datenbank.
 - **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.
-- **Zeichensatz:** Der CSV-Konnektor erwartet UTF-8; Windows-1252 wird nicht unterstützt.
 - **Lieferzeit-Texte:** stehen fest im Code (`availability.Derive`), sollen konfigurierbar werden.
 - **Bilder im Sync ungeprüft:** Die Testdaten haben unerreichbare Bildadressen; ob und wie Shopify echte Bilder übernimmt und Fehler meldet, ist offen.
 - **Sync von Hand:** Nach einem Import oder einer Freigabe muss der Sync ausgelöst werden.

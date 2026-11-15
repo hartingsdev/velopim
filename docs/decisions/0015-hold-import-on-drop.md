@@ -13,4 +13,4 @@ Fehlen mehr als 20 % der bisher aktiven Artikel, bekommt der Lauf den Status `he
 - **Nie automatisch deaktivieren:** ausgelaufene Artikel bleiben verkaufbar.
 
 ## Folgen
-Die Schwelle ist ein Parameter (`MaxDropPct`). Bei einem echten Sortimentswechsel muss der Betreiber den Lauf bestätigen; dieser Weg ist noch nicht gebaut.
+Die Schwelle ist ein Parameter (`MaxDropPct`). Bei einem echten Sortimentswechsel bestätigt der Betreiber den Lauf im Task („Fehlende Artikel deaktivieren“): Die abgelegte Originaldatei wird ohne die Prüfung erneut importiert. Das geht nur, solange der angehaltene Lauf der neueste der Quelle ist; ein neuerer Import schließt den Task.

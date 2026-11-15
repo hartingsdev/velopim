@@ -1,6 +1,7 @@
 package csvfile
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -158,5 +159,42 @@ func TestValidGTINAndSuspiciousDrop(t *testing.T) {
 	}
 	if !connector.SuspiciousDrop(1000, 600, 20) || connector.SuspiciousDrop(1000, 950, 20) || connector.SuspiciousDrop(0, 0, 20) {
 		t.Error("SuspiciousDrop gives wrong results")
+	}
+}
+
+func TestEncoding(t *testing.T) {
+	// "Größe;Preis" / "Rahmenhöhe 52 – 1.299,00 €" in Windows-1252:
+	// ö = F6, ß = DF, – = 96, € = 80.
+	win := []byte("Nr;Bezeichnung;UVP\n1;Rahmenh\xf6he 52 \x96 Gr\xf6\xdfe L;1.299,00 \x80\n")
+	utf := []byte("Nr;Bezeichnung;UVP\n1;Rahmenhöhe 52 – Größe L;1.299,00 €\n")
+	want := "Rahmenhöhe 52 – Größe L"
+
+	cases := []struct {
+		name, encoding string
+		data           []byte
+	}{
+		{"windows-1252 detected", "", win},
+		{"windows-1252 configured", "windows-1252", win},
+		{"utf-8 detected", "", utf},
+		{"utf-8 configured", "utf-8", utf},
+		{"utf-8 with byte order mark", "", append([]byte("\xef\xbb\xbf"), utf...)},
+	}
+	for _, c := range cases {
+		conn, err := New(Config{SourceID: "x", Delimiter: ";", DecimalComma: true, Encoding: c.encoding,
+			Columns: map[string]string{SKU: "Nr", Name: "Bezeichnung", RRP: "UVP"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := conn.Parse(bytes.NewReader(c.data))
+		if err != nil || len(res.Records) != 1 {
+			t.Fatalf("%s: %v %+v", c.name, err, res)
+		}
+		item, _ := conn.Normalize(res.Records[0])
+		if item.Name != want || item.RRPCents != 129900 {
+			t.Errorf("%s: name %q, rrp %d", c.name, item.Name, item.RRPCents)
+		}
+	}
+	if _, err := New(Config{SourceID: "x", Delimiter: ";", Encoding: "latin9", Columns: map[string]string{SKU: "Nr"}}); err == nil {
+		t.Error("unknown encoding was accepted")
 	}
 }

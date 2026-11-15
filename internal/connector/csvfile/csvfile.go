@@ -4,7 +4,7 @@
 package csvfile
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"velopim/internal/connector"
 )
@@ -46,6 +47,10 @@ type Config struct {
 	ImageSeparator string `json:"image_separator,omitempty"`
 	// AttributeColumns lists headers copied into SupplierItem.Attributes.
 	AttributeColumns []string `json:"attribute_columns,omitempty"`
+	// Encoding is "utf-8" or "windows-1252". Empty means: UTF-8 when the
+	// file is valid UTF-8, otherwise Windows-1252, the usual encoding of
+	// files exported from German Windows systems.
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // Connector implements connector.Connector for a configured CSV layout.
@@ -62,6 +67,11 @@ func New(cfg Config) (*Connector, error) {
 	if cfg.Columns[SKU] == "" {
 		return nil, errors.New("csvfile: a column for \"sku\" is required")
 	}
+	switch cfg.Encoding {
+	case "", "utf-8", "windows-1252":
+	default:
+		return nil, fmt.Errorf("csvfile: unknown encoding %q (utf-8, windows-1252)", cfg.Encoding)
+	}
 	if cfg.ImageSeparator == "" {
 		cfg.ImageSeparator = "|"
 	}
@@ -73,11 +83,15 @@ func (c *Connector) SourceID() string { return c.cfg.SourceID }
 // Parse reads the file. The first row is the header. Every column is kept
 // in the raw record, mapped or not.
 func (c *Connector) Parse(r io.Reader) (connector.ParseResult, error) {
-	br := bufio.NewReader(r)
-	if b, err := br.Peek(3); err == nil && string(b) == "\xef\xbb\xbf" {
-		_, _ = br.Discard(3)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return connector.ParseResult{}, fmt.Errorf("csvfile: reading file: %w", err)
 	}
-	cr := csv.NewReader(br)
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	if c.cfg.Encoding == "windows-1252" || c.cfg.Encoding == "" && !utf8.Valid(data) {
+		data = decodeWindows1252(data)
+	}
+	cr := csv.NewReader(bytes.NewReader(data))
 	cr.Comma = []rune(c.cfg.Delimiter)[0]
 	cr.LazyQuotes = true
 	cr.FieldsPerRecord = -1
@@ -102,12 +116,12 @@ func (c *Connector) Parse(r io.Reader) (connector.ParseResult, error) {
 			break
 		}
 		if err != nil {
-			res.Issues = append(res.Issues, connector.Issue{Message: fmt.Sprintf("line %d: %v", line, err)})
+			res.Issues = append(res.Issues, connector.Issue{Message: fmt.Sprintf("Zeile %d: nicht lesbar (%v)", line, err)})
 			continue
 		}
 		if len(row) != len(header) {
 			res.Issues = append(res.Issues, connector.Issue{
-				Message: fmt.Sprintf("line %d: %d columns, header has %d", line, len(row), len(header))})
+				Message: fmt.Sprintf("Zeile %d: %d Spalten, die Kopfzeile hat %d", line, len(row), len(header))})
 			continue
 		}
 		fields := make(map[string]string, len(header))
@@ -117,9 +131,9 @@ func (c *Connector) Parse(r io.Reader) (connector.ParseResult, error) {
 		key := fields[skuCol]
 		switch {
 		case key == "":
-			res.Issues = append(res.Issues, connector.Issue{Message: fmt.Sprintf("line %d: no article number", line)})
+			res.Issues = append(res.Issues, connector.Issue{Message: fmt.Sprintf("Zeile %d: keine Artikelnummer", line)})
 		case seen[key]:
-			res.Issues = append(res.Issues, connector.Issue{Key: key, Message: fmt.Sprintf("line %d: duplicate article number", line)})
+			res.Issues = append(res.Issues, connector.Issue{Key: key, Message: fmt.Sprintf("Zeile %d: Artikelnummer kommt doppelt vor", line)})
 		default:
 			seen[key] = true
 			res.Records = append(res.Records, connector.RawRecord{Key: key, Fields: fields})
@@ -150,18 +164,18 @@ func (c *Connector) Normalize(rec connector.RawRecord) (connector.SupplierItem, 
 	}
 
 	if it.EAN == "" {
-		issue(EAN, "EAN missing")
+		issue(EAN, "EAN fehlt")
 	} else if !connector.ValidGTIN(it.EAN) {
-		issue(EAN, fmt.Sprintf("EAN %q has a wrong length or check digit", it.EAN))
+		issue(EAN, fmt.Sprintf("EAN %q hat eine falsche Länge oder Prüfziffer", it.EAN))
 	}
 	if it.Name == "" {
-		issue(Name, "name missing")
+		issue(Name, "Bezeichnung fehlt")
 	}
 
 	if v := get(ModelYear); v != "" {
 		y, err := strconv.Atoi(v)
 		if err != nil || y < 2000 || y > 2100 {
-			issue(ModelYear, fmt.Sprintf("model year %q is not a plausible year", v))
+			issue(ModelYear, fmt.Sprintf("Modelljahr %q ist kein plausibles Jahr", v))
 		} else {
 			it.ModelYear = y
 		}
@@ -174,13 +188,13 @@ func (c *Connector) Normalize(rec connector.RawRecord) (connector.SupplierItem, 
 		}
 		cents, err := ParseCents(v, c.cfg.DecimalComma)
 		if err != nil {
-			issue(target, fmt.Sprintf("price %q is not a number", v))
+			issue(target, fmt.Sprintf("Preis %q ist keine Zahl", v))
 			continue
 		}
 		*dst = cents
 	}
 	if it.CostCents > 0 && it.RRPCents > 0 && it.CostCents >= it.RRPCents {
-		issue(Cost, "purchase price is not below the recommended retail price")
+		issue(Cost, "Einkaufspreis liegt nicht unter der UVP")
 	}
 
 	for _, u := range strings.Split(get(Images), c.cfg.ImageSeparator) {
@@ -223,4 +237,27 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// windows1252 maps the bytes 0x80 to 0x9F, where Windows-1252 differs from
+// Latin-1. Unassigned bytes become the replacement character.
+var windows1252 = [32]rune{
+	0x20AC, 0xFFFD, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0xFFFD, 0x017D, 0xFFFD,
+	0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0xFFFD, 0x017E, 0x0178,
+}
+
+// decodeWindows1252 converts Windows-1252 bytes to UTF-8.
+func decodeWindows1252(data []byte) []byte {
+	out := make([]byte, 0, len(data)+len(data)/8)
+	for _, b := range data {
+		switch {
+		case b < 0x80:
+			out = append(out, b)
+		case b < 0xA0:
+			out = utf8.AppendRune(out, windows1252[b-0x80])
+		default:
+			out = utf8.AppendRune(out, rune(b)) // identical to Latin-1 here
+		}
+	}
+	return out
 }

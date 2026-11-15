@@ -12,4 +12,4 @@ Je Importlauf entsteht ein einziger Task. Die einzelnen Probleme stehen in `impo
 - **Ein Task je Problem:** flutet die Taskliste.
 
 ## Folgen
-Bekannte Schwäche: Jeder Lauf mit Problemen legt einen neuen Sammel-Task an, auch wenn es dieselben Probleme wie im Lauf davor sind.
+Je Quelle gibt es höchstens einen offenen Sammel-Task. Bleiben die Probleme von Lauf zu Lauf gleich, entsteht kein neuer, auch nicht, nachdem der Betreiber ihn geschlossen hat. Ändern sie sich, ersetzt ein neuer Task den alten.

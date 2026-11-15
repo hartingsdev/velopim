@@ -65,6 +65,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `GET /api/tasks?status=open\|closed&category=…&q=…` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells, Zählern gesamt und je Kategorie. Kategorien: `price`, `new_model`, `availability`, `removed`, `content`, `import`, `other`. `q` sucht in Titel, Artikelnummern und EANs |
 | `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}` plus Korrekturen: `split_by`, `variant_prices`, `price_cents`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
+| `POST /api/import-runs/{id}/confirm` | angehaltene Lieferung als vollständig bestätigen; 409, wenn der Lauf nicht angehalten oder nicht mehr der neueste ist |
 | `GET /api/products?status=…&unpriced=true&q=…` | Produkte mit Varianten, Preisen, bevorzugtem Lieferantenartikel und Modellzugehörigkeit (höchstens 200) |
 | `GET /api/supplier-items?q=…` | Suche in allen Lieferantenartikeln (höchstens 50) |
 | `GET /api/products/{id}` | das Produkt mit seinen Geschwistern aus demselben Modell, Verlauf (`field_change`) und internen Notizen |
