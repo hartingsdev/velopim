@@ -18,7 +18,7 @@ Maßgeblich ist `db/migrations/`. Diese Seite erklärt, wozu die Tabellen da sin
 Der Katalog wird befüllt, wenn ein neues Modell freigegeben wird (`catalog.CreateFromAction`).
 
 ## Steuerung
-- **`usage_policy`:** je Quelle und Marke pro Feldgruppe (Bilder, Texte, Preise, Attribute): `use`, `internal_only` oder `ignore`. Noch nicht in der Pipeline ausgewertet.
+- **`usage_policy`:** je Quelle und Marke pro Feldgruppe (Bilder, Texte, Preise, Attribute): `use`, `internal_only` oder `ignore` ([28](decisions/0028-usage-policy.md)).
 - **`pricing_rule`:** Kalkulation je Marke und Kategorie (Verfahren, Wert, MwSt, Rundung, UVP als Obergrenze). Die spezifischste Regel gilt.
 - **`rule`:** Regel der Regel-Engine: Geltungsbereich (Quelle, Marke, Kategorie), Aktionstyp, Bedingungen, Ergebnis (`auto` oder `approval`), Schutzregel ja/nein ([10](decisions/0010-structured-rules.md), [13](decisions/0013-guard-rules.md)).
 

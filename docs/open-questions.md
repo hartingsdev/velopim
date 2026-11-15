@@ -6,7 +6,7 @@
 - **Development-Store und API-Token:** fehlen. Das Token kommt nur als Umgebungsvariable, nie in den Chat oder ins Repository.
 - **Lieferzeit im Theme:** Namespace und Key des Metafelds.
 - **Kalkulation:** Die Werte pflegt der Betreiber unter „Kalkulation“; festgelegt hat er noch keine. In der lokalen Datenbank steht eine Testregel (Faktor 1,6, ,99, höchstens UVP), die keine Vorgabe ist.
-- **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie in den Katalog übernommen; die Nutzungsrichtlinie ist noch nicht eingebaut.
+- **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie übernommen. Abstellen lässt es sich im Reiter „Lieferanten“ ([28](decisions/0028-usage-policy.md)).
 - **Preise folgen dem EK ([26](decisions/0026-price-follow-rules.md)):** „Nicht mitgehen, weil noch Lagerbestand da ist“ geht erst, wenn Eigenbestand erfasst wird.
 - **Preisregel ([18](decisions/0018-price-changes-need-approval.md)):** Der Betrag wird eins zu eins auf den Ladenpreis übertragen (Annahme), nicht brutto umgerechnet.
 - **OIDC und Gruppen:** Welcher Anbieter? Sollen Gruppen Aufgaben nur filtern oder auch Rechte begrenzen? Ersetzt dann „kein Login“ ([20](decisions/0020-no-login-localhost.md)) und die Annahme „ein Nutzer“.

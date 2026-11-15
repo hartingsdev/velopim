@@ -54,6 +54,8 @@ type Result struct {
 	QuantityChanges int
 	AutoApplied     int
 	PendingApproval int
+	// Ignored counts changes the usage policy says to ignore.
+	Ignored int
 }
 
 const maxStoredIssues = 500
@@ -112,6 +114,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	if err != nil {
 		return Result{}, err
 	}
+	policies, err := catalog.LoadUsagePolicies(ctx, q)
+	if err != nil {
+		return Result{}, err
+	}
 	prev, err := loadItems(ctx, q, sourceID)
 	if err != nil {
 		return Result{}, err
@@ -124,7 +130,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	if err != nil {
 		return Result{}, err
 	}
-	run := &runState{ctx: ctx, q: q, runID: res.RunID, sourceID: sourceID, rules: ruleSet, priceRules: priceRules, res: &res}
+	run := &runState{ctx: ctx, q: q, runID: res.RunID, sourceID: sourceID, rules: ruleSet, priceRules: priceRules, policies: policies, res: &res}
 
 	issues := append([]connector.Issue(nil), parsed.Issues...)
 	seen := make(map[string]bool, len(parsed.Records))
@@ -212,6 +218,7 @@ type runState struct {
 	sourceID   string
 	rules      []rules.Rule
 	priceRules []pricing.Rule
+	policies   catalog.UsagePolicies
 	res        *Result
 	// newItems collects the articles first seen in this run; they are
 	// decided per model once all articles are read.
@@ -407,6 +414,12 @@ func (s *runState) upsert(rec connector.RawRecord, item connector.SupplierItem, 
 // A pending action gets a task; an older pending action for the same field
 // is superseded so that tasks do not pile up.
 func (s *runState) decide(p actions.Proposal, itemID int64, item connector.SupplierItem, prev *connector.SupplierItem) error {
+	// Changes of a field group the source's usage policy ignores create no
+	// action; the supplier view and its history are updated regardless.
+	if p.Field != "" && s.policies.For(s.sourceID, item.Brand, catalog.GroupOfField(p.Field)) == catalog.PolicyIgnore {
+		s.res.Ignored++
+		return nil
+	}
 	superseded, err := s.q.SupersedePendingActions(s.ctx, db.SupersedePendingActionsParams{
 		SupplierItemID: &itemID, Type: string(p.Type), Field: p.Field})
 	if err != nil {

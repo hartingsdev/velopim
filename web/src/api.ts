@@ -339,3 +339,30 @@ export function setVariantPrice(id: number, priceCents: number): Promise<void> {
 export function addProductNote(id: number, body: string): Promise<void> {
   return send("POST", `/api/products/${id}/notes`, { body });
 }
+
+export type FieldGroup = "images" | "texts" | "prices" | "attributes";
+export type Policy = "use" | "internal_only" | "ignore";
+
+export interface UsagePolicy {
+  source_id: string;
+  brand: string;
+  field_group: FieldGroup;
+  policy: Policy;
+}
+
+export interface UsagePolicyList {
+  policies: UsagePolicy[];
+  sources: { id: string; name: string }[];
+}
+
+export function listUsagePolicies(): Promise<UsagePolicyList> {
+  return request("/api/usage-policies");
+}
+
+export function saveUsagePolicy(policy: UsagePolicy): Promise<void> {
+  return send("PUT", "/api/usage-policies", policy);
+}
+
+export function deleteUsagePolicy(p: Pick<UsagePolicy, "source_id" | "brand" | "field_group">): Promise<void> {
+  return request(`/api/usage-policies${queryString(p)}`, { method: "DELETE" });
+}

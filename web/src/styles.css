@@ -558,3 +558,30 @@ textarea {
 main > .item {
   margin: 0 0 0.75rem;
 }
+
+.exception {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.75rem;
+  white-space: nowrap;
+}
+
+.exception button {
+  padding: 0 0.4rem;
+  line-height: 1.3;
+}
+
+.exception-form {
+  margin-top: 0.75rem;
+}
+
+.exception-form input {
+  width: auto;
+  flex: 1 1 8rem;
+  text-align: left;
+}
+
+td .meta {
+  white-space: normal;
+}

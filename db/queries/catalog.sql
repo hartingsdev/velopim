@@ -192,3 +192,16 @@ ON CONFLICT (product_id) DO UPDATE SET wanted = EXCLUDED.wanted;
 
 -- name: GetVariantProduct :one
 SELECT product_id FROM variant WHERE id = $1;
+
+-- name: ListUsagePolicies :many
+SELECT id, source_id, brand, field_group, policy FROM usage_policy ORDER BY source_id, brand, field_group;
+
+-- name: UpsertUsagePolicy :exec
+INSERT INTO usage_policy (source_id, brand, field_group, policy) VALUES ($1, $2, $3, $4)
+ON CONFLICT (source_id, brand, field_group) DO UPDATE SET policy = EXCLUDED.policy;
+
+-- name: DeleteUsagePolicy :execrows
+DELETE FROM usage_policy WHERE source_id = $1 AND brand = $2 AND field_group = $3;
+
+-- name: GetSupplierItemScope :one
+SELECT source_id, brand FROM supplier_item WHERE id = $1;

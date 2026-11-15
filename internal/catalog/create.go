@@ -131,6 +131,13 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 		priceRules = append(priceRules, r)
 	}
 
+	// Texts and images are only copied where the usage policy allows it
+	// (docs/decisions/0028).
+	policies, err := LoadUsagePolicies(ctx, q)
+	if err != nil {
+		return err
+	}
+
 	const reason = "Modell freigegeben"
 	change := func(entity string, id int64, field, value string) error {
 		return q.InsertCatalogFieldChange(ctx, db.InsertCatalogFieldChangeParams{
@@ -144,7 +151,14 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 		if !known {
 			var images []string
 			seen := map[string]bool{}
+			description := first.Description
+			if policies.For(first.SourceID, first.Brand, GroupTexts) != PolicyUse {
+				description = ""
+			}
 			for _, v := range p.Variants {
+				if policies.For(first.SourceID, first.Brand, GroupImages) != PolicyUse {
+					break
+				}
 				var urls []string
 				_ = json.Unmarshal(bySKU[v.SKU].ImageUrls, &urls)
 				for _, u := range urls {
@@ -156,7 +170,7 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 			}
 			productID, err = q.InsertProduct(ctx, db.InsertProductParams{
 				Brand: p.Model.Brand, Name: p.Title, ModelYear: first.ModelYear, Category: first.Category,
-				DescriptionHtml: first.Description, ImageUrls: mustJSON(nonNil(images)),
+				DescriptionHtml: description, ImageUrls: mustJSON(nonNil(images)),
 				OptionNames: mustJSON(nonNil(p.OptionNames)), ModelKey: modelKey,
 				SplitBy: mustJSON(nonNilAxes(splitBy)), SplitValues: mustJSON(nonNilSplit(p.Split))})
 			if err != nil {

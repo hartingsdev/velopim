@@ -6,6 +6,7 @@ import {
   listRules,
   listProducts,
   listTasks,
+  listUsagePolicies,
   searchSupplierItems,
   type ImportRun,
   type PricingRule,
@@ -13,6 +14,7 @@ import {
   type ProductList,
   type RuleList,
   type TaskList,
+  type UsagePolicyList,
 } from "./api";
 import { ImportRuns } from "./ImportRuns";
 import { Pricing } from "./Pricing";
@@ -21,6 +23,7 @@ import { Products } from "./Products";
 import { Rules } from "./Rules";
 import { href, useRoute, type Route, type View } from "./route";
 import { Search, type SearchResults } from "./Search";
+import { Sources } from "./Sources";
 import { Tasks } from "./Tasks";
 
 type Data =
@@ -30,6 +33,7 @@ type Data =
   | { view: "pricing"; rules: PricingRule[] }
   | { view: "rules"; list: RuleList }
   | { view: "product"; detail: ProductDetailData }
+  | { view: "sources"; list: UsagePolicyList }
   | { view: "search"; results: SearchResults };
 
 async function fetchData({ view, params }: Route): Promise<Data> {
@@ -44,6 +48,8 @@ async function fetchData({ view, params }: Route): Promise<Data> {
       return { view, list: await listRules() };
     case "product":
       return { view, detail: await getProduct(params.id ?? "") };
+    case "sources":
+      return { view, list: await listUsagePolicies() };
     case "search": {
       const q = (params.q ?? "").trim();
       if (!q) {
@@ -120,6 +126,7 @@ export function App() {
           {tab("tasks", "Aufgaben", openCount)}
           {tab("products", "Produkte")}
           {tab("imports", "Importe")}
+          {tab("sources", "Lieferanten")}
           {tab("rules", "Regeln")}
           {tab("pricing", "Kalkulation")}
         </nav>
@@ -153,6 +160,7 @@ export function App() {
         {current?.view === "product" && (
           <ProductDetail key={key} detail={current.detail} onChanged={load} onError={setError} />
         )}
+        {current?.view === "sources" && <Sources list={current.list} onChanged={load} onError={setError} />}
         {current?.view === "search" && <Search results={current.results} />}
       </main>
     </>

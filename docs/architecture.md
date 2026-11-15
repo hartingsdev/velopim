@@ -70,6 +70,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `PATCH /api/variants/{id}` | `price_cents` setzen |
 | `POST /api/products/{id}/notes` | interne Notiz anlegen |
 | `GET /api/rules`, `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | Regeln der Regel-Engine; 422 bei ungültiger Regel; Löschen einer Regel, die schon entschieden hat, gibt 409 (stattdessen ausschalten) |
+| `GET /api/usage-policies`, `PUT /api/usage-policies`, `DELETE /api/usage-policies?source_id=…&brand=…&field_group=…` | Nutzungsrichtlinie; „verwenden“ für alle Marken wird als fehlender Eintrag gespeichert |
 | `GET /api/pricing-rules` | Kalkulationsregeln |
 | `PUT /api/pricing-rules` | Regel für Marke und Kategorie anlegen oder ersetzen; 422 bei ungültiger Kalkulation |
 | `DELETE /api/pricing-rules/{id}` | Regel löschen |

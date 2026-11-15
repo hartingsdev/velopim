@@ -386,3 +386,69 @@ func TestApprovedSupplierChangesReachTheCatalog(t *testing.T) {
 		t.Errorf("field changes:\n got  %s\n want %s", got, want)
 	}
 }
+
+func TestUsagePolicyKeepsSupplierDataOutOfProducts(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO usage_policy (source_id, brand, field_group, policy) VALUES
+		  ('example', '', 'images', 'internal_only'),
+		  ('example', 'Beispielrad', 'texts', 'ignore');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := csvfile.New(csvfile.Config{SourceID: "example", Delimiter: ";", DecimalComma: true,
+		Columns: map[string]string{csvfile.SKU: "Nr", csvfile.Brand: "Marke", csvfile.Name: "Name", csvfile.ModelYear: "Jahr",
+			csvfile.Color: "Farbe", csvfile.FrameSize: "RH", csvfile.Cost: "EK", csvfile.Description: "Text", csvfile.Images: "Bilder"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(row string) importer.Result {
+		t.Helper()
+		file := strings.NewReader("Nr;Marke;Name;Jahr;Farbe;RH;EK;Text;Bilder\n" + row + "\n")
+		res, err := importer.Run(ctx, pool, conn, file, importer.Options{RawDir: t.TempDir(), MaxDropPct: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	product := func() string {
+		return query(t, pool, `SELECT '[' || description_html || '] ' || image_urls::text FROM product`)
+	}
+
+	load("1;Beispielrad;City 3;2027;rot;50;500,00;Text des Lieferanten;https://example.test/a.jpg")
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, "Beispielrad City 3 (2027)"), tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
+		t.Fatal(err)
+	}
+	// Neither text nor images were copied; the supplier view has both.
+	if got := product(); got != "[] []" {
+		t.Errorf("product after approval: %s", got)
+	}
+	if got := query(t, pool, `SELECT description || ' ' || image_urls::text FROM supplier_item`); got != `Text des Lieferanten ["https://example.test/a.jpg"]` {
+		t.Errorf("supplier view: %s", got)
+	}
+
+	// Text change: ignored, so no action and no task, but the supplier view
+	// follows. Image change: a task appears, yet approving copies nothing.
+	res := load("1;Beispielrad;City 3;2027;rot;50;500,00;Neuer Text;https://example.test/b.jpg")
+	if res.Ignored != 1 || res.PendingApproval != 1 {
+		t.Fatalf("run: %+v", res)
+	}
+	if n := query(t, pool, `SELECT count(*)::text FROM action WHERE field = 'description'`); n != "0" {
+		t.Errorf("ignored text change created %s actions", n)
+	}
+	if got := query(t, pool, `SELECT description FROM supplier_item`); got != "Neuer Text" {
+		t.Errorf("supplier view was not updated: %s", got)
+	}
+	var taskID int64
+	if err := pool.QueryRow(ctx, `SELECT t.id FROM task t JOIN action a ON a.id = t.action_id WHERE a.field = 'image_urls' AND t.status = 'open'`).Scan(&taskID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tasks.Decide(ctx, pool, taskID, tasks.Decision{Approve: true, Actor: "robert"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := product(); got != "[] []" {
+		t.Errorf("internal-only images reached the product: %s", got)
+	}
+}

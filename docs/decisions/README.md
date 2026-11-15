@@ -31,3 +31,4 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 25 | [Neue Produkte gehen als Entwurf zu Shopify, Veröffentlichen ist ein Task](0025-publish-task.md) | Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt |
 | 26 | [Regeln entscheiden, ob Preise dem Einkaufspreis folgen](0026-price-follow-rules.md) | Angenommen (Vorgabe des Betreibers), umgesetzt |
 | 27 | [Verfügbarkeit wird nicht kopiert, sondern live gelesen](0027-availability-is-live.md) | Vorläufig, ohne Betreiber entschieden |
+| 28 | [Nutzungsrichtlinie je Lieferant, Marke und Datengruppe](0028-usage-policy.md) | Angenommen, umgesetzt; Bedeutung der Stufen vorläufig |

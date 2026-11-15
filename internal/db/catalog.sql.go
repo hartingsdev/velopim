@@ -51,6 +51,24 @@ func (q *Queries) DeletePricingRule(ctx context.Context, id int64) (int64, error
 	return result.RowsAffected(), nil
 }
 
+const deleteUsagePolicy = `-- name: DeleteUsagePolicy :execrows
+DELETE FROM usage_policy WHERE source_id = $1 AND brand = $2 AND field_group = $3
+`
+
+type DeleteUsagePolicyParams struct {
+	SourceID   string
+	Brand      string
+	FieldGroup string
+}
+
+func (q *Queries) DeleteUsagePolicy(ctx context.Context, arg DeleteUsagePolicyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUsagePolicy, arg.SourceID, arg.Brand, arg.FieldGroup)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getListingWanted = `-- name: GetListingWanted :one
 SELECT coalesce((SELECT l.wanted FROM shopify_listing l WHERE l.product_id = $1), false)::bool AS wanted
 `
@@ -104,6 +122,22 @@ func (q *Queries) GetProductText(ctx context.Context, id int64) (GetProductTextR
 	row := q.db.QueryRow(ctx, getProductText, id)
 	var i GetProductTextRow
 	err := row.Scan(&i.Name, &i.DescriptionHtml)
+	return i, err
+}
+
+const getSupplierItemScope = `-- name: GetSupplierItemScope :one
+SELECT source_id, brand FROM supplier_item WHERE id = $1
+`
+
+type GetSupplierItemScopeRow struct {
+	SourceID string
+	Brand    string
+}
+
+func (q *Queries) GetSupplierItemScope(ctx context.Context, id int64) (GetSupplierItemScopeRow, error) {
+	row := q.db.QueryRow(ctx, getSupplierItemScope, id)
+	var i GetSupplierItemScopeRow
+	err := row.Scan(&i.SourceID, &i.Brand)
 	return i, err
 }
 
@@ -726,6 +760,36 @@ func (q *Queries) ListSupplierImagesOfProduct(ctx context.Context, productID int
 	return items, nil
 }
 
+const listUsagePolicies = `-- name: ListUsagePolicies :many
+SELECT id, source_id, brand, field_group, policy FROM usage_policy ORDER BY source_id, brand, field_group
+`
+
+func (q *Queries) ListUsagePolicies(ctx context.Context) ([]UsagePolicy, error) {
+	rows, err := q.db.Query(ctx, listUsagePolicies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UsagePolicy
+	for rows.Next() {
+		var i UsagePolicy
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceID,
+			&i.Brand,
+			&i.FieldGroup,
+			&i.Policy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVariantsOfProducts = `-- name: ListVariantsOfProducts :many
 SELECT v.id, v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
        s.sku AS supplier_sku, s.source_id, s.cost_cents, s.rrp_cents, s.availability_status
@@ -964,4 +1028,26 @@ func (q *Queries) UpsertPricingRule(ctx context.Context, arg UpsertPricingRulePa
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertUsagePolicy = `-- name: UpsertUsagePolicy :exec
+INSERT INTO usage_policy (source_id, brand, field_group, policy) VALUES ($1, $2, $3, $4)
+ON CONFLICT (source_id, brand, field_group) DO UPDATE SET policy = EXCLUDED.policy
+`
+
+type UpsertUsagePolicyParams struct {
+	SourceID   string
+	Brand      string
+	FieldGroup string
+	Policy     string
+}
+
+func (q *Queries) UpsertUsagePolicy(ctx context.Context, arg UpsertUsagePolicyParams) error {
+	_, err := q.db.Exec(ctx, upsertUsagePolicy,
+		arg.SourceID,
+		arg.Brand,
+		arg.FieldGroup,
+		arg.Policy,
+	)
+	return err
 }

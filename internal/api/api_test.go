@@ -574,3 +574,52 @@ func TestProductDetailAndEditing(t *testing.T) {
 		t.Errorf("unknown product: %d", rec.Code)
 	}
 }
+
+func TestUsagePolicies(t *testing.T) {
+	pool := dbtest.New(t)
+	seed(t, pool)
+	h := New(pool, "tester")
+	const jsonType = "application/json"
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"unknown group", `{"source_id":"example","brand":"","field_group":"colors","policy":"use"}`, http.StatusUnprocessableEntity},
+		{"unknown policy", `{"source_id":"example","brand":"","field_group":"images","policy":"maybe"}`, http.StatusUnprocessableEntity},
+		{"unknown source", `{"source_id":"nobody","brand":"","field_group":"images","policy":"ignore"}`, http.StatusUnprocessableEntity},
+		{"images internal for the source", `{"source_id":"example","brand":"","field_group":"images","policy":"internal_only"}`, http.StatusNoContent},
+		{"but usable for one brand", `{"source_id":"example","brand":"Beispielrad","field_group":"images","policy":"use"}`, http.StatusNoContent},
+		{"texts ignored", `{"source_id":"example","brand":"","field_group":"texts","policy":"ignore"}`, http.StatusNoContent},
+		{"texts back to the default", `{"source_id":"example","brand":"","field_group":"texts","policy":"use"}`, http.StatusNoContent},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "PUT", "/api/usage-policies", jsonType, c.body); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+	list := func() string {
+		t.Helper()
+		var out UsagePolicyList
+		rec := do(t, h, "GET", "/api/usage-policies", "", "")
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		var parts []string
+		for _, p := range out.Policies {
+			parts = append(parts, p.SourceID+"/"+p.Brand+"/"+p.Group+"="+p.Policy)
+		}
+		return strings.Join(parts, " ")
+	}
+	if got, want := list(), "example//images=internal_only example/Beispielrad/images=use"; got != want {
+		t.Errorf("policies = %q, want %q", got, want)
+	}
+	if rec := do(t, h, "DELETE", "/api/usage-policies?source_id=example&brand=Beispielrad&field_group=images", "", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", rec.Code)
+	}
+	if rec := do(t, h, "DELETE", "/api/usage-policies?source_id=example&brand=Beispielrad&field_group=images", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("second delete: %d", rec.Code)
+	}
+	if got, want := list(), "example//images=internal_only"; got != want {
+		t.Errorf("policies = %q, want %q", got, want)
+	}
+}

@@ -26,7 +26,9 @@ import (
 // is not automated.
 //
 // Only the preferred supplier's article changes the catalog. Nothing happens
-// when the article has no variant yet. origin is "user" or "rule".
+// when the article has no variant yet, or when the usage policy of the
+// source does not allow the field group to be used. origin is "user" or
+// "rule".
 func ApplyItemChange(ctx context.Context, q *db.Queries, actionID, supplierItemID int64, field, newValue, origin, actor string) error {
 	switch field {
 	case "description", "image_urls", "rrp_cents", "ean":
@@ -39,6 +41,18 @@ func ApplyItemChange(ctx context.Context, q *db.Queries, actionID, supplierItemI
 	}
 	if err != nil {
 		return err
+	}
+	// Data the usage policy keeps internal never reaches a product.
+	scope, err := q.GetSupplierItemScope(ctx, supplierItemID)
+	if err != nil {
+		return err
+	}
+	policies, err := LoadUsagePolicies(ctx, q)
+	if err != nil {
+		return err
+	}
+	if policies.For(scope.SourceID, scope.Brand, GroupOfField(field)) != PolicyUse {
+		return nil
 	}
 	record := func(entity string, id int64, field, oldValue, newValue string) error {
 		if oldValue == newValue {
