@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { deletePricingRule, savePricingRule, type PricingConfig, type PricingRule } from "./api";
+import { matches, SearchBox, type Params } from "./route";
 
 interface Props {
   rules: PricingRule[];
+  params: Params;
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }
@@ -24,13 +26,14 @@ function describe(c: PricingConfig): string {
   return parts.join(", ");
 }
 
-export function Pricing({ rules, onChanged, onError }: Props) {
+export function Pricing({ rules: all, params, onChanged, onError }: Props) {
+  const rules = all.filter((r) => matches(params.q, r.brand || "Alle Marken", r.category || "alle Kategorien", describe(r.config)));
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState("");
   const [config, setConfig] = useState<PricingConfig>(emptyConfig);
   const [busy, setBusy] = useState(false);
 
-  const existing = rules.find((r) => r.brand === brand.trim() && r.category === category.trim());
+  const existing = all.find((r) => r.brand === brand.trim() && r.category === category.trim());
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -70,8 +73,15 @@ export function Pricing({ rules, onChanged, onError }: Props) {
         Marke und Kategorie, dann Marke, dann Kategorie, dann die Regel für alle. Bestehende Preise ändern sich dadurch
         nicht.
       </p>
+      <div className="toolbar">
+        <SearchBox view="pricing" params={params} placeholder="Regeln durchsuchen (Marke, Kategorie)" />
+      </div>
       {rules.length === 0 ? (
-        <p className="empty">Noch keine Regel. Ohne Regel werden Varianten ohne Verkaufspreis angelegt.</p>
+        <p className="empty">
+          {all.length === 0
+            ? "Noch keine Regel. Ohne Regel werden Varianten ohne Verkaufspreis angelegt."
+            : "Keine Regel passt zur Suche."}
+        </p>
       ) : (
         <ul className="tasks">
           {rules.map((rule) => (

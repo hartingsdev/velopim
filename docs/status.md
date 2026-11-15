@@ -14,9 +14,10 @@
 | Eigener Katalog: Freigabe eines Modells legt Produkte (Entwurf) und Varianten mit eigener Artikelnummer und kalkuliertem Preis an | `catalog`, `tasks` |
 | Shopify-Projektion und Diff | `shopify` |
 | Betragsgleiche Preisänderung: EK-Änderung schlägt denselben Betrag beim Verkaufspreis vor; Freigabe oder Regel ändert den Preis | `importer`, `tasks`, `catalog` |
-| HTTP-API für Tasks, Importläufe, Produkte und Kalkulationsregeln | `api` |
+| HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
+| Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
-| Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale und Korrektur der Preise vor der Freigabe; erledigte Aufgaben; Produktliste; Importläufe; Kalkulationsregeln | `web` |
+| Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale und Korrektur der Preise vor der Freigabe; erledigte Aufgaben als Umschalter im Reiter Aufgaben; Produktliste je Modell (die Trennung für den Shop ist nur ein Hinweis); Importläufe; Kalkulationsregeln | `web` |
 
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 

@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"velopim/internal/catalog"
 	"velopim/internal/db"
 	"velopim/internal/pricing"
 )
 
 // addModelDetails fills the variants of new-model tasks, with the price the
 // pricing rules calculate, and the cut of models that already have products.
-func (s *server) addModelDetails(ctx context.Context, q *db.Queries, rows []db.ListOpenTasksRow, out []Task) error {
+func (s *server) addModelDetails(ctx context.Context, q *db.Queries, rows []db.ListTasksRow, out []Task) error {
 	var actionIDs []int64
 	var modelKeys []string
 	for _, row := range rows {
@@ -156,7 +158,8 @@ func (s *server) deletePricingRule(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Product is one product of the own catalog with its variants.
+// Product is one product of the own catalog with its variants. Products cut
+// from the same model share ModelKey and ModelName.
 type Product struct {
 	ID          int64     `json:"id"`
 	Brand       string    `json:"brand"`
@@ -166,7 +169,18 @@ type Product struct {
 	Status      string    `json:"status"`
 	OptionNames []string  `json:"option_names"`
 	CreatedAt   time.Time `json:"created_at"`
-	Variants    []Variant `json:"variants"`
+	ModelKey    string    `json:"model_key"`
+	ModelName   string    `json:"model_name"`
+	// Split holds the values this product was separated by for the shop.
+	Split    []catalog.AxisValue `json:"split"`
+	Variants []Variant           `json:"variants"`
+}
+
+// ProductList is the response of GET /api/products.
+type ProductList struct {
+	Products []Product `json:"products"`
+	Total    int64     `json:"total"`
+	Unpriced int64     `json:"unpriced"`
 }
 
 // Variant is one variant with the preferred supplier's article behind it.
@@ -186,19 +200,40 @@ type Variant struct {
 
 func (s *server) listProducts(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.pool)
-	rows, err := q.ListProducts(r.Context(), listLimit)
+	query := r.URL.Query()
+	status := query.Get("status")
+	if status != "" && status != "draft" && status != "active" && status != "archived" {
+		writeError(w, http.StatusBadRequest, "unknown status")
+		return
+	}
+	rows, err := q.ListProducts(r.Context(), db.ListProductsParams{Status: status, Unpriced: query.Get("unpriced") == "true",
+		Q: strings.TrimSpace(query.Get("q")), MaxRows: listLimit})
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	out := make([]Product, 0, len(rows))
+	counts, err := q.CountProducts(r.Context())
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	out := ProductList{Products: make([]Product, 0, len(rows)), Total: counts.Total, Unpriced: counts.Unpriced}
 	ids := make([]int64, 0, len(rows))
 	index := map[int64]int{}
 	for i, row := range rows {
 		p := Product{ID: row.ID, Brand: row.Brand, Name: row.Name, ModelYear: row.ModelYear, Category: row.Category,
-			Status: row.Status, OptionNames: []string{}, CreatedAt: row.CreatedAt, Variants: []Variant{}}
+			Status: row.Status, OptionNames: []string{}, CreatedAt: row.CreatedAt, ModelKey: row.ModelKey,
+			Split: []catalog.AxisValue{}, Variants: []Variant{}}
 		_ = json.Unmarshal(row.OptionNames, &p.OptionNames)
-		out = append(out, p)
+		_ = json.Unmarshal(row.SplitValues, &p.Split)
+		// The product name is the model name followed by the split values.
+		p.ModelName = p.Name
+		for i := len(p.Split) - 1; i >= 0; i-- {
+			if v := p.Split[i].Value; v != "" {
+				p.ModelName = strings.TrimSuffix(p.ModelName, " "+v)
+			}
+		}
+		out.Products = append(out.Products, p)
 		ids = append(ids, row.ID)
 		index[row.ID] = i
 	}
@@ -212,8 +247,47 @@ func (s *server) listProducts(w http.ResponseWriter, r *http.Request) {
 			CompareAtCents: v.CompareAtCents, SupplierSKU: v.SupplierSku, SourceID: v.SourceID, CostCents: v.CostCents,
 			RRPCents: v.RrpCents, Availability: v.AvailabilityStatus}
 		_ = json.Unmarshal(v.OptionValues, &item.OptionValues)
-		p := &out[index[v.ProductID]]
+		p := &out.Products[index[v.ProductID]]
 		p.Variants = append(p.Variants, item)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"products": out})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// SupplierItem is one article of a supplier as found by the search.
+type SupplierItem struct {
+	ID           int64   `json:"id"`
+	SourceID     string  `json:"source_id"`
+	SKU          string  `json:"sku"`
+	EAN          string  `json:"ean"`
+	Brand        string  `json:"brand"`
+	Name         string  `json:"name"`
+	ModelYear    *int32  `json:"model_year"`
+	Color        string  `json:"color"`
+	FrameSize    string  `json:"frame_size"`
+	CostCents    *int64  `json:"cost_cents"`
+	RRPCents     *int64  `json:"rrp_cents"`
+	Availability string  `json:"availability"`
+	Active       bool    `json:"active"`
+	OwnSKU       *string `json:"own_sku"`
+	ProductName  *string `json:"product_name"`
+}
+
+// searchSupplierItems finds supplier articles by article number, EAN,
+// manufacturer number, brand, name or color. An empty query finds nothing.
+func (s *server) searchSupplierItems(w http.ResponseWriter, r *http.Request) {
+	out := []SupplierItem{}
+	if search := strings.TrimSpace(r.URL.Query().Get("q")); search != "" {
+		rows, err := db.New(s.pool).SearchSupplierItems(r.Context(), db.SearchSupplierItemsParams{Q: search, MaxRows: 50})
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		for _, row := range rows {
+			out = append(out, SupplierItem{ID: row.ID, SourceID: row.SourceID, SKU: row.Sku, EAN: row.Ean, Brand: row.Brand,
+				Name: row.Name, ModelYear: row.ModelYear, Color: row.Color, FrameSize: row.FrameSize, CostCents: row.CostCents,
+				RRPCents: row.RrpCents, Availability: row.AvailabilityStatus, Active: row.Active, OwnSKU: row.OwnSku,
+				ProductName: row.ProductName})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }

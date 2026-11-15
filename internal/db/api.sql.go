@@ -28,6 +28,59 @@ func (q *Queries) CountTasks(ctx context.Context) (CountTasksRow, error) {
 	return i, err
 }
 
+const countTasksByCategory = `-- name: CountTasksByCategory :many
+SELECT (CASE
+           WHEN a.type = 'new_product' THEN 'new_model'
+           WHEN a.type = 'price_change' THEN 'price'
+           WHEN a.type = 'availability_status_change' THEN 'availability'
+           WHEN a.type = 'deactivation' THEN 'removed'
+           WHEN a.type IS NOT NULL THEN 'content'
+           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           ELSE 'other'
+       END)::text AS category, count(*) AS count
+FROM task t
+LEFT JOIN action a ON a.id = t.action_id
+LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
+WHERE (t.status = 'open') = $1::bool
+  AND ($2::text = ''
+       OR strpos(lower(t.title), lower($2::text)) > 0
+       OR strpos(lower(coalesce(s.sku, '') || ' ' || coalesce(s.ean, '')), lower($2::text)) > 0
+       OR EXISTS (SELECT 1 FROM action_item ai JOIN supplier_item si ON si.id = ai.supplier_item_id
+                  WHERE ai.action_id = t.action_id
+                    AND strpos(lower(si.sku || ' ' || si.ean), lower($2::text)) > 0))
+GROUP BY 1
+`
+
+type CountTasksByCategoryParams struct {
+	Open bool
+	Q    string
+}
+
+type CountTasksByCategoryRow struct {
+	Category string
+	Count    int64
+}
+
+func (q *Queries) CountTasksByCategory(ctx context.Context, arg CountTasksByCategoryParams) ([]CountTasksByCategoryRow, error) {
+	rows, err := q.db.Query(ctx, countTasksByCategory, arg.Open, arg.Q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountTasksByCategoryRow
+	for rows.Next() {
+		var i CountTasksByCategoryRow
+		if err := rows.Scan(&i.Category, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSource = `-- name: GetSource :one
 SELECT id, name, connector_kind, connector_config FROM source WHERE id = $1
 `
@@ -107,101 +160,6 @@ func (q *Queries) ListActionItems(ctx context.Context, actionIds []int64) ([]Lis
 	return items, nil
 }
 
-const listClosedTasks = `-- name: ListClosedTasks :many
-SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
-       t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
-       r.name AS rule_name,
-       s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
-FROM task t
-LEFT JOIN action a ON a.id = t.action_id
-LEFT JOIN rule r ON r.id = a.rule_id
-LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE t.status <> 'open'
-ORDER BY t.closed_at DESC, t.id DESC
-LIMIT $1
-`
-
-type ListClosedTasksRow struct {
-	ID                 int64
-	Kind               string
-	Title              string
-	Detail             string
-	Status             string
-	Priority           int16
-	CreatedAt          time.Time
-	ClosedAt           *time.Time
-	ClosedBy           *string
-	Note               *string
-	ImportRunID        *int64
-	ActionID           *int64
-	ActionType         *string
-	ActionField        *string
-	OldValue           *string
-	NewValue           *string
-	DecisionReason     *string
-	ModelKey           *string
-	BasePriceCents     *int64
-	ProposedPriceCents *int64
-	RuleName           *string
-	SourceID           *string
-	Sku                *string
-	Brand              *string
-	ItemName           *string
-	ModelYear          *int32
-	Color              *string
-	FrameSize          *string
-}
-
-func (q *Queries) ListClosedTasks(ctx context.Context, limit int32) ([]ListClosedTasksRow, error) {
-	rows, err := q.db.Query(ctx, listClosedTasks, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListClosedTasksRow
-	for rows.Next() {
-		var i ListClosedTasksRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Kind,
-			&i.Title,
-			&i.Detail,
-			&i.Status,
-			&i.Priority,
-			&i.CreatedAt,
-			&i.ClosedAt,
-			&i.ClosedBy,
-			&i.Note,
-			&i.ImportRunID,
-			&i.ActionID,
-			&i.ActionType,
-			&i.ActionField,
-			&i.OldValue,
-			&i.NewValue,
-			&i.DecisionReason,
-			&i.ModelKey,
-			&i.BasePriceCents,
-			&i.ProposedPriceCents,
-			&i.RuleName,
-			&i.SourceID,
-			&i.Sku,
-			&i.Brand,
-			&i.ItemName,
-			&i.ModelYear,
-			&i.Color,
-			&i.FrameSize,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listImportRuns = `-- name: ListImportRuns :many
 SELECT r.id, r.source_id, s.name AS source_name, r.status, r.record_count, r.issue_count, r.summary, r.error,
        r.started_at, r.finished_at
@@ -254,22 +212,55 @@ func (q *Queries) ListImportRuns(ctx context.Context, limit int32) ([]ListImport
 	return items, nil
 }
 
-const listOpenTasks = `-- name: ListOpenTasks :many
+const listTasks = `-- name: ListTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
        a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
-       s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
+       s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size,
+       (CASE
+           WHEN a.type = 'new_product' THEN 'new_model'
+           WHEN a.type = 'price_change' THEN 'price'
+           WHEN a.type = 'availability_status_change' THEN 'availability'
+           WHEN a.type = 'deactivation' THEN 'removed'
+           WHEN a.type IS NOT NULL THEN 'content'
+           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           ELSE 'other'
+       END)::text AS category
 FROM task t
 LEFT JOIN action a ON a.id = t.action_id
 LEFT JOIN rule r ON r.id = a.rule_id
 LEFT JOIN supplier_item s ON s.id = t.supplier_item_id
-WHERE t.status = 'open'
-ORDER BY t.priority, t.created_at DESC, t.id DESC
-LIMIT $1
+WHERE (t.status = 'open') = $1::bool
+  AND ($2::text = '' OR (CASE
+           WHEN a.type = 'new_product' THEN 'new_model'
+           WHEN a.type = 'price_change' THEN 'price'
+           WHEN a.type = 'availability_status_change' THEN 'availability'
+           WHEN a.type = 'deactivation' THEN 'removed'
+           WHEN a.type IS NOT NULL THEN 'content'
+           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           ELSE 'other'
+       END) = $2::text)
+  AND ($3::text = ''
+       OR strpos(lower(t.title), lower($3::text)) > 0
+       OR strpos(lower(coalesce(s.sku, '') || ' ' || coalesce(s.ean, '')), lower($3::text)) > 0
+       OR EXISTS (SELECT 1 FROM action_item ai JOIN supplier_item si ON si.id = ai.supplier_item_id
+                  WHERE ai.action_id = t.action_id
+                    AND strpos(lower(si.sku || ' ' || si.ean), lower($3::text)) > 0))
+ORDER BY CASE WHEN $1::bool THEN t.priority END,
+         CASE WHEN $1::bool THEN t.created_at ELSE t.closed_at END DESC,
+         t.id DESC
+LIMIT $4
 `
 
-type ListOpenTasksRow struct {
+type ListTasksParams struct {
+	Open     bool
+	Category string
+	Q        string
+	MaxRows  int32
+}
+
+type ListTasksRow struct {
 	ID                 int64
 	Kind               string
 	Title              string
@@ -298,17 +289,25 @@ type ListOpenTasksRow struct {
 	ModelYear          *int32
 	Color              *string
 	FrameSize          *string
+	Category           string
 }
 
-func (q *Queries) ListOpenTasks(ctx context.Context, limit int32) ([]ListOpenTasksRow, error) {
-	rows, err := q.db.Query(ctx, listOpenTasks, limit)
+// Open tasks are ordered by priority, closed ones by when they were closed.
+// category ” means all; q matches title, article numbers and EANs.
+func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error) {
+	rows, err := q.db.Query(ctx, listTasks,
+		arg.Open,
+		arg.Category,
+		arg.Q,
+		arg.MaxRows,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListOpenTasksRow
+	var items []ListTasksRow
 	for rows.Next() {
-		var i ListOpenTasksRow
+		var i ListTasksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Kind,
@@ -338,6 +337,79 @@ func (q *Queries) ListOpenTasks(ctx context.Context, limit int32) ([]ListOpenTas
 			&i.ModelYear,
 			&i.Color,
 			&i.FrameSize,
+			&i.Category,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchSupplierItems = `-- name: SearchSupplierItems :many
+SELECT s.id, s.source_id, s.sku, s.ean, s.brand, s.name, s.model_year, s.color, s.frame_size, s.cost_cents,
+       s.rrp_cents, s.availability_status, s.active, v.sku AS own_sku, p.name AS product_name
+FROM supplier_item s
+LEFT JOIN variant_supplier_item vs ON vs.supplier_item_id = s.id
+LEFT JOIN variant v ON v.id = vs.variant_id
+LEFT JOIN product p ON p.id = v.product_id
+WHERE strpos(lower(s.sku || ' ' || s.ean || ' ' || s.mpn || ' ' || s.brand || ' ' || s.name || ' ' || s.color),
+             lower($1::text)) > 0
+ORDER BY s.brand, s.name, s.sku
+LIMIT $2
+`
+
+type SearchSupplierItemsParams struct {
+	Q       string
+	MaxRows int32
+}
+
+type SearchSupplierItemsRow struct {
+	ID                 int64
+	SourceID           string
+	Sku                string
+	Ean                string
+	Brand              string
+	Name               string
+	ModelYear          *int32
+	Color              string
+	FrameSize          string
+	CostCents          *int64
+	RrpCents           *int64
+	AvailabilityStatus string
+	Active             bool
+	OwnSku             *string
+	ProductName        *string
+}
+
+func (q *Queries) SearchSupplierItems(ctx context.Context, arg SearchSupplierItemsParams) ([]SearchSupplierItemsRow, error) {
+	rows, err := q.db.Query(ctx, searchSupplierItems, arg.Q, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchSupplierItemsRow
+	for rows.Next() {
+		var i SearchSupplierItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceID,
+			&i.Sku,
+			&i.Ean,
+			&i.Brand,
+			&i.Name,
+			&i.ModelYear,
+			&i.Color,
+			&i.FrameSize,
+			&i.CostCents,
+			&i.RrpCents,
+			&i.AvailabilityStatus,
+			&i.Active,
+			&i.OwnSku,
+			&i.ProductName,
 		); err != nil {
 			return nil, err
 		}

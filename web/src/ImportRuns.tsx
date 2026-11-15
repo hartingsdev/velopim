@@ -1,11 +1,20 @@
 import type { ImportRun } from "./api";
 import { formatDate, runStatusLabel } from "./format";
+import { matches, SearchBox, type Params } from "./route";
 
-export function ImportRuns({ runs }: { runs: ImportRun[] }) {
-  if (runs.length === 0) {
-    return <p className="empty">Noch kein Import gelaufen.</p>;
-  }
+export function ImportRuns({ runs: all, params }: { runs: ImportRun[]; params: Params }) {
+  const runs = all.filter((run) =>
+    matches(params.q, run.source_name, run.source_id, `Lauf ${run.id}`, runStatusLabel(run.status), formatDate(run.started_at),
+      ...(run.summary.issues ?? []).flatMap((i) => [i.key, i.message])),
+  );
   return (
+    <>
+      <div className="toolbar">
+        <SearchBox view="imports" params={params} placeholder="Importe durchsuchen (Lieferant, Status, Datenproblem, Artikelnr.)" />
+      </div>
+      {runs.length === 0 && (
+        <p className="empty">{all.length === 0 ? "Noch kein Import gelaufen." : "Kein Import passt zur Suche."}</p>
+      )}
     <ul className="tasks">
       {runs.map((run) => {
         const s = run.summary;
@@ -49,5 +58,6 @@ export function ImportRuns({ runs }: { runs: ImportRun[] }) {
         );
       })}
     </ul>
+    </>
   );
 }

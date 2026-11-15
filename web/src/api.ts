@@ -42,6 +42,7 @@ export interface Task {
   closed_by: string | null;
   note: string | null;
   import_run_id: number | null;
+  category: TaskCategory;
   action: TaskAction | null;
   item: TaskItem | null;
   /** Supplier items of a new-model task; empty otherwise. */
@@ -50,10 +51,14 @@ export interface Task {
   locked_split_by: string[] | null;
 }
 
+export type TaskCategory = "price" | "new_model" | "availability" | "removed" | "content" | "import" | "other";
+
 export interface TaskList {
   tasks: Task[];
   open: number;
   closed: number;
+  /** Tasks of the requested status and search per category, ignoring the category filter. */
+  categories: Partial<Record<TaskCategory, number>>;
 }
 
 export interface ImportIssue {
@@ -109,8 +114,15 @@ export class ApiError extends Error {
   }
 }
 
-export function listTasks(status: "open" | "closed"): Promise<TaskList> {
-  return request(`/api/tasks?status=${status}`);
+function queryString(params: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value) q.set(key, value);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+export function listTasks(params: { status?: string; category?: string; q?: string }): Promise<TaskList> {
+  return request(`/api/tasks${queryString(params)}`);
 }
 
 /** Corrections to a proposal, applied when it is approved. */
@@ -191,10 +203,43 @@ export interface Product {
   status: "draft" | "active" | "archived";
   option_names: string[];
   created_at: string;
+  /** Products cut from the same model share key and name. */
+  model_key: string;
+  model_name: string;
+  /** What this product was separated by for the shop. */
+  split: { axis: string; value: string }[];
   variants: Variant[];
 }
 
-export async function listProducts(): Promise<Product[]> {
-  const body = await request<{ products: Product[] }>("/api/products");
-  return body.products;
+export interface ProductList {
+  products: Product[];
+  total: number;
+  unpriced: number;
+}
+
+export function listProducts(params: { status?: string; unpriced?: string; q?: string }): Promise<ProductList> {
+  return request(`/api/products${queryString(params)}`);
+}
+
+export interface SupplierItem {
+  id: number;
+  source_id: string;
+  sku: string;
+  ean: string;
+  brand: string;
+  name: string;
+  model_year: number | null;
+  color: string;
+  frame_size: string;
+  cost_cents: number | null;
+  rrp_cents: number | null;
+  availability: string;
+  active: boolean;
+  own_sku: string | null;
+  product_name: string | null;
+}
+
+export async function searchSupplierItems(q: string): Promise<SupplierItem[]> {
+  const body = await request<{ items: SupplierItem[] }>(`/api/supplier-items${queryString({ q })}`);
+  return body.items;
 }

@@ -11,7 +11,9 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,19 +28,22 @@ const listLimit = 200
 
 // Task is one entry of the task list.
 type Task struct {
-	ID          int64       `json:"id"`
-	Kind        string      `json:"kind"`
-	Title       string      `json:"title"`
-	Detail      string      `json:"detail"`
-	Status      string      `json:"status"`
-	Priority    int         `json:"priority"`
-	CreatedAt   time.Time   `json:"created_at"`
-	ClosedAt    *time.Time  `json:"closed_at"`
-	ClosedBy    *string     `json:"closed_by"`
-	Note        *string     `json:"note"`
-	ImportRunID *int64      `json:"import_run_id"`
-	Action      *TaskAction `json:"action"`
-	Item        *TaskItem   `json:"item"`
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	Title       string     `json:"title"`
+	Detail      string     `json:"detail"`
+	Status      string     `json:"status"`
+	Priority    int        `json:"priority"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ClosedAt    *time.Time `json:"closed_at"`
+	ClosedBy    *string    `json:"closed_by"`
+	Note        *string    `json:"note"`
+	ImportRunID *int64     `json:"import_run_id"`
+	// Category groups tasks for filtering: price, new_model, availability,
+	// removed, content, import or other.
+	Category string      `json:"category"`
+	Action   *TaskAction `json:"action"`
+	Item     *TaskItem   `json:"item"`
 	// Variants lists the supplier items of a new-model task.
 	Variants []TaskItem `json:"variants"`
 	// LockedSplitBy is set when the model already has products: their cut
@@ -83,6 +88,9 @@ type TaskList struct {
 	Tasks  []Task `json:"tasks"`
 	Open   int64  `json:"open"`
 	Closed int64  `json:"closed"`
+	// Categories counts the tasks of the requested status and search per
+	// category, regardless of the category filter.
+	Categories map[string]int64 `json:"categories"`
 }
 
 // ImportRun is one entry of GET /api/import-runs.
@@ -131,6 +139,7 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/decision", s.decideTask)
 	mux.HandleFunc("GET /api/import-runs", s.listImportRuns)
 	mux.HandleFunc("GET /api/products", s.listProducts)
+	mux.HandleFunc("GET /api/supplier-items", s.searchSupplierItems)
 	mux.HandleFunc("GET /api/pricing-rules", s.listPricingRules)
 	mux.HandleFunc("PUT /api/pricing-rules", s.putPricingRule)
 	mux.HandleFunc("DELETE /api/pricing-rules/{id}", s.deletePricingRule)
@@ -140,23 +149,29 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 	return mux
 }
 
+// taskCategories are the values of Task.Category, in display order.
+var taskCategories = []string{"price", "new_model", "availability", "removed", "content", "import", "other"}
+
 func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.pool)
-	var rows []db.ListOpenTasksRow
-	var err error
-	switch r.URL.Query().Get("status") {
+	query := r.URL.Query()
+	open := true
+	switch query.Get("status") {
 	case "", "open":
-		rows, err = q.ListOpenTasks(r.Context(), listLimit)
 	case "closed":
-		var closed []db.ListClosedTasksRow
-		closed, err = q.ListClosedTasks(r.Context(), listLimit)
-		for _, c := range closed {
-			rows = append(rows, db.ListOpenTasksRow(c))
-		}
+		open = false
 	default:
 		writeError(w, http.StatusBadRequest, "status must be open or closed")
 		return
 	}
+	category := query.Get("category")
+	if category != "" && !slices.Contains(taskCategories, category) {
+		writeError(w, http.StatusBadRequest, "unknown category")
+		return
+	}
+	search := strings.TrimSpace(query.Get("q"))
+
+	rows, err := q.ListTasks(r.Context(), db.ListTasksParams{Open: open, Category: category, Q: search, MaxRows: listLimit})
 	if err != nil {
 		internalError(w, err)
 		return
@@ -166,7 +181,15 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Closed: counts.Closed}
+	byCategory, err := q.CountTasksByCategory(r.Context(), db.CountTasksByCategoryParams{Open: open, Q: search})
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Closed: counts.Closed, Categories: map[string]int64{}}
+	for _, c := range byCategory {
+		out.Categories[c.Category] = c.Count
+	}
 	for _, row := range rows {
 		out.Tasks = append(out.Tasks, taskFromRow(row))
 	}
@@ -177,11 +200,11 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func taskFromRow(row db.ListOpenTasksRow) Task {
+func taskFromRow(row db.ListTasksRow) Task {
 	t := Task{
 		ID: row.ID, Kind: row.Kind, Title: row.Title, Detail: row.Detail, Status: row.Status,
 		Priority: int(row.Priority), CreatedAt: row.CreatedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy,
-		Note: row.Note, ImportRunID: row.ImportRunID, Variants: []TaskItem{},
+		Note: row.Note, ImportRunID: row.ImportRunID, Category: row.Category, Variants: []TaskItem{},
 	}
 	if row.ActionType != nil {
 		t.Action = &TaskAction{Type: *row.ActionType, Field: str(row.ActionField), Old: str(row.OldValue),

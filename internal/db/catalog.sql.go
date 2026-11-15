@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+const countProducts = `-- name: CountProducts :one
+SELECT count(*) AS total,
+       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL)) AS unpriced
+FROM product p
+`
+
+type CountProductsRow struct {
+	Total    int64
+	Unpriced int64
+}
+
+func (q *Queries) CountProducts(ctx context.Context) (CountProductsRow, error) {
+	row := q.db.QueryRow(ctx, countProducts)
+	var i CountProductsRow
+	err := row.Scan(&i.Total, &i.Unpriced)
+	return i, err
+}
+
 const deletePricingRule = `-- name: DeletePricingRule :execrows
 DELETE FROM pricing_rule WHERE id = $1
 `
@@ -287,11 +305,29 @@ func (q *Queries) ListModelSplits(ctx context.Context, modelKeys []string) ([]Li
 }
 
 const listProducts = `-- name: ListProducts :many
-SELECT id, brand, name, model_year, category, status, option_names, created_at
-FROM product
-ORDER BY brand, name, model_year, id
-LIMIT $1
+SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
+       p.model_key, p.split_values
+FROM product p
+WHERE ($1::text = '' OR p.status = $1::text)
+  AND (NOT $2::bool
+       OR EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL))
+  AND ($3::text = ''
+       OR strpos(lower(p.brand || ' ' || p.name), lower($3::text)) > 0
+       OR EXISTS (SELECT 1 FROM variant v
+                  LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id
+                  LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+                  WHERE v.product_id = p.id
+                    AND strpos(lower(v.sku || ' ' || v.ean || ' ' || coalesce(s.sku, '')), lower($3::text)) > 0))
+ORDER BY p.brand, p.model_key, p.id
+LIMIT $4
 `
+
+type ListProductsParams struct {
+	Status   string
+	Unpriced bool
+	Q        string
+	MaxRows  int32
+}
 
 type ListProductsRow struct {
 	ID          int64
@@ -302,10 +338,19 @@ type ListProductsRow struct {
 	Status      string
 	OptionNames []byte
 	CreatedAt   time.Time
+	ModelKey    string
+	SplitValues []byte
 }
 
-func (q *Queries) ListProducts(ctx context.Context, limit int32) ([]ListProductsRow, error) {
-	rows, err := q.db.Query(ctx, listProducts, limit)
+// status ” means all; unpriced limits to products with a variant without
+// sales price; q matches brand, name, own and supplier article numbers, EANs.
+func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
+	rows, err := q.db.Query(ctx, listProducts,
+		arg.Status,
+		arg.Unpriced,
+		arg.Q,
+		arg.MaxRows,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +367,8 @@ func (q *Queries) ListProducts(ctx context.Context, limit int32) ([]ListProducts
 			&i.Status,
 			&i.OptionNames,
 			&i.CreatedAt,
+			&i.ModelKey,
+			&i.SplitValues,
 		); err != nil {
 			return nil, err
 		}

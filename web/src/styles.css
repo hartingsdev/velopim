@@ -382,3 +382,107 @@ select {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+header {
+  align-items: center;
+}
+
+.global-search {
+  flex: 1 1 12rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.global-search input {
+  width: 100%;
+  max-width: 18rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.search {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.toolbar .chips {
+  margin-bottom: 0;
+}
+
+.chip {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.chip .n {
+  margin-left: 0.15rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.results {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.1rem 1rem;
+  padding: 0.25rem 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+.tab,
+.chip.active {
+  color: inherit;
+}
+
+.chip.active {
+  color: var(--accent-text);
+}
+
+.tab {
+  color: var(--muted);
+}
+
+.tab.active {
+  color: var(--text);
+}
+
+section.task {
+  margin-bottom: 0.75rem;
+}
+
+.inactive td {
+  color: var(--muted);
+}

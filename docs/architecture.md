@@ -60,12 +60,18 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | Methode und Pfad | Zweck |
 |---|---|
 | `GET /api/health` | Lebenszeichen |
-| `GET /api/tasks?status=open\|closed` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells und Zählern |
+| `GET /api/tasks?status=open\|closed&category=…&q=…` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells, Zählern gesamt und je Kategorie. Kategorien: `price`, `new_model`, `availability`, `removed`, `content`, `import`, `other`. `q` sucht in Titel, Artikelnummern und EANs |
 | `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}` plus Korrekturen: `split_by`, `variant_prices`, `price_cents`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
-| `GET /api/products` | Produkte mit Varianten, Preisen und bevorzugtem Lieferantenartikel (höchstens 200) |
+| `GET /api/products?status=…&unpriced=true&q=…` | Produkte mit Varianten, Preisen, bevorzugtem Lieferantenartikel und Modellzugehörigkeit (höchstens 200) |
+| `GET /api/supplier-items?q=…` | Suche in allen Lieferantenartikeln (höchstens 50) |
 | `GET /api/pricing-rules` | Kalkulationsregeln |
 | `PUT /api/pricing-rules` | Regel für Marke und Kategorie anlegen oder ersetzen; 422 bei ungültiger Kalkulation |
 | `DELETE /api/pricing-rules/{id}` | Regel löschen |
 
 Die TypeScript-Typen dazu stehen in `web/src/api.ts` und werden von Hand gepflegt ([19](decisions/0019-handwritten-api-types.md)).
+
+## Oberfläche
+Die Adresse hat die Form `#ansicht?schlüssel=wert`, zum Beispiel `#tasks?status=closed&category=price&q=city`. Suche und Filter stehen damit in der Adresse: Jede Liste lässt sich verlinken, neu laden und mit „Zurück“ erreichen. Aufgaben und Produkte werden auf dem Server gesucht und gefiltert, weil die Listen auf 200 Einträge begrenzt sind; Importe und Kalkulationsregeln sind kurze Listen und werden im Browser gefiltert. Die Suche im Kopf (`#search?q=…`) fragt Aufgaben, Produkte und Lieferantenartikel ab.
+
+Die Produktliste fasst Produkte desselben Modells zu einem Eintrag zusammen. Die Trennung in mehrere Shop-Produkte ([21](decisions/0021-configurable-product-split.md)) ist eine Sicht für Kunden, nicht für die Arbeit im PIM.

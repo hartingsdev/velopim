@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { ApiError, decideTask, type Corrections, type Task, type TaskItem, type TaskList } from "./api";
+import { ApiError, decideTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
+import { Chip, SearchBox, type Params } from "./route";
 import {
   axisLabel,
+  categoryLabel,
+  categoryOrder,
   fieldLabel,
   formatAmount,
   formatDate,
@@ -15,21 +18,52 @@ import {
 
 interface Props {
   list: TaskList;
-  closed: boolean;
+  params: Params;
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }
 
-export function Tasks({ list, closed, onChanged, onError }: Props) {
-  const total = closed ? list.closed : list.open;
-  if (list.tasks.length === 0) {
-    return <p className="empty">{closed ? "Noch nichts erledigt." : "Keine offenen Aufgaben."}</p>;
-  }
+export function Tasks({ list, params, onChanged, onError }: Props) {
+  const closed = params.status === "closed";
+  const filtered = Boolean(params.q || params.category);
+  // What matches search and category; the list itself is capped.
+  const matching = params.category
+    ? (list.categories[params.category as TaskCategory] ?? 0)
+    : Object.values(list.categories).reduce((sum, n) => sum + (n ?? 0), 0);
+  const categories = categoryOrder.filter((c) => list.categories[c as TaskCategory] || c === params.category);
   return (
     <>
-      {total > list.tasks.length && (
+      <div className="toolbar">
+        <div className="chips" role="group" aria-label="Status">
+          <Chip view="tasks" params={{ ...params, status: undefined, category: undefined }} active={!closed}>
+            Offen <span className="n">{list.open}</span>
+          </Chip>
+          <Chip view="tasks" params={{ ...params, status: "closed", category: undefined }} active={closed}>
+            Erledigt <span className="n">{list.closed}</span>
+          </Chip>
+        </div>
+        <SearchBox view="tasks" params={params} placeholder="Aufgaben durchsuchen (Titel, Artikelnr., EAN)" />
+      </div>
+      {categories.length > 0 && (
+        <div className="chips" role="group" aria-label="Kategorie">
+          <Chip view="tasks" params={{ ...params, category: undefined }} active={!params.category}>
+            Alle
+          </Chip>
+          {categories.map((c) => (
+            <Chip key={c} view="tasks" params={{ ...params, category: c }} active={params.category === c}>
+              {categoryLabel(c)} <span className="n">{list.categories[c as TaskCategory] ?? 0}</span>
+            </Chip>
+          ))}
+        </div>
+      )}
+      {list.tasks.length === 0 && (
+        <p className="empty">
+          {filtered ? "Keine Aufgabe passt zu Suche und Filter." : closed ? "Noch nichts erledigt." : "Keine offenen Aufgaben."}
+        </p>
+      )}
+      {matching > list.tasks.length && (
         <p className="hint">
-          Angezeigt werden {list.tasks.length} von {total} Aufgaben.
+          Angezeigt werden {list.tasks.length} von {matching} Aufgaben. Grenze die Liste mit Suche oder Kategorie ein.
         </p>
       )}
       <ul className="tasks">
@@ -138,6 +172,7 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
       <div className="task-head">
         <h2>{task.title}</h2>
         <span className="meta">
+          <span className="badge status-done">{categoryLabel(task.category)}</span>
           {open && task.priority === 1 && <span className="badge">{priorityLabel(1)}</span>}
           {formatDate(task.created_at)}
         </span>

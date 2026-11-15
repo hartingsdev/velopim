@@ -301,3 +301,128 @@ func TestPricingRulesAndModelApproval(t *testing.T) {
 		t.Errorf("second delete: %d", rec.Code)
 	}
 }
+
+func TestSearchAndFilters(t *testing.T) {
+	pool := dbtest.New(t)
+	approval, _ := seed(t, pool) // one price task for article 100-001, one data issue task
+	h := New(pool, "tester")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO supplier_item (source_id, sku, ean, brand, name, model_year, color, frame_size, cost_cents) VALUES
+		  ('example', '200-001', '4006381333931', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000),
+		  ('example', '200-002', '', 'Beispielrad', 'City 3', 2027, 'blau', '50', 50000);
+		INSERT INTO action (type, status, new_value, decision_reason, model_key)
+		  VALUES ('new_product', 'pending_approval', 'Beispielrad City 3 (2027)', 'no rule matched, approval by default', 'm');
+		INSERT INTO action_item (action_id, supplier_item_id) SELECT 2, id FROM supplier_item WHERE name = 'City 3';
+		INSERT INTO task (kind, title, priority, action_id) VALUES ('approve_action', 'Neues Modell prüfen: Beispielrad City 3 (2027), 2 Varianten', 2, 2);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	titles := func(query string) string {
+		t.Helper()
+		rec := do(t, h, "GET", "/api/tasks?"+query, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET tasks?%s: %d %s", query, rec.Code, rec.Body)
+		}
+		var list TaskList
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, task := range list.Tasks {
+			out = append(out, task.Category)
+		}
+		return strings.Join(out, ",")
+	}
+	cases := []struct{ query, want string }{
+		{"status=open", "price,new_model,import"},
+		{"category=price", "price"},
+		{"category=import", "import"},
+		{"q=city", "new_model"},
+		{"q=100-001", "price"},     // article of the task
+		{"q=200-002", "new_model"}, // article inside a model task
+		{"q=4006381333931", "new_model"},
+		{"q=%25", ""}, // a percent sign is text, not a wildcard
+		{"q=city&category=price", ""},
+		{"status=closed", ""},
+	}
+	for _, c := range cases {
+		if got := titles(c.query); got != c.want {
+			t.Errorf("tasks?%s = %q, want %q", c.query, got, c.want)
+		}
+	}
+	list := getTasks(t, h, "open")
+	if list.Categories["price"] != 1 || list.Categories["new_model"] != 1 || list.Categories["import"] != 1 || len(list.Categories) != 3 {
+		t.Errorf("categories: %v", list.Categories)
+	}
+	if rec := do(t, h, "GET", "/api/tasks?category=bogus", "", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("bogus category: %d", rec.Code)
+	}
+
+	// Approve the price task, then the model split by color: two products
+	// of one model, one variant without price (no pricing rule).
+	if rec := do(t, h, "POST", "/api/tasks/"+strconv.FormatInt(approval, 10)+"/decision", "application/json", `{"approve":true}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("approve price: %d %s", rec.Code, rec.Body)
+	}
+	if got := titles("status=closed&q=100-001"); got != "price" {
+		t.Errorf("closed search = %q", got)
+	}
+	if rec := do(t, h, "POST", "/api/tasks/3/decision", "application/json",
+		`{"approve":true,"split_by":["color"],"variant_prices":{"200-001":89900}}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("approve model: %d %s", rec.Code, rec.Body)
+	}
+	products := func(query string) (string, ProductList) {
+		t.Helper()
+		rec := do(t, h, "GET", "/api/products?"+query, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET products?%s: %d %s", query, rec.Code, rec.Body)
+		}
+		var list ProductList
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range list.Products {
+			out = append(out, p.Name)
+		}
+		return strings.Join(out, ","), list
+	}
+	for _, c := range []struct{ query, want string }{
+		{"", "City 3 blau,City 3 rot"},
+		{"unpriced=true", "City 3 blau"},
+		{"q=200-001", "City 3 rot"}, // supplier article number
+		{"q=10002", "City 3 rot"},   // own article number
+		{"q=beispielrad", "City 3 blau,City 3 rot"},
+		{"status=active", ""},
+		{"status=draft&q=blau", "City 3 blau"},
+	} {
+		if got, _ := products(c.query); got != c.want {
+			t.Errorf("products?%s = %q, want %q", c.query, got, c.want)
+		}
+	}
+	_, all := products("")
+	if all.Total != 2 || all.Unpriced != 1 {
+		t.Errorf("counts: total %d, unpriced %d", all.Total, all.Unpriced)
+	}
+	for _, p := range all.Products {
+		if p.ModelKey != "m" || p.ModelName != "City 3" || len(p.Split) != 1 || p.Split[0].Axis != "color" {
+			t.Errorf("model of %s: key %q name %q split %v", p.Name, p.ModelKey, p.ModelName, p.Split)
+		}
+	}
+
+	// Supplier articles: found by EAN, with the own article number once a
+	// variant exists; an empty query finds nothing.
+	var items struct {
+		Items []SupplierItem `json:"items"`
+	}
+	rec := do(t, h, "GET", "/api/supplier-items?q=4006381333931", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items.Items) != 1 || items.Items[0].SKU != "200-001" || items.Items[0].OwnSKU == nil || *items.Items[0].OwnSKU != "10002" {
+		t.Errorf("supplier item search: %+v", items.Items)
+	}
+	rec = do(t, h, "GET", "/api/supplier-items?q=", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil || len(items.Items) != 0 {
+		t.Errorf("empty search: %v %+v", err, items.Items)
+	}
+}

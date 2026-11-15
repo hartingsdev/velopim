@@ -33,10 +33,28 @@ INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, o
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: ListProducts :many
-SELECT id, brand, name, model_year, category, status, option_names, created_at
-FROM product
-ORDER BY brand, name, model_year, id
-LIMIT $1;
+-- status '' means all; unpriced limits to products with a variant without
+-- sales price; q matches brand, name, own and supplier article numbers, EANs.
+SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
+       p.model_key, p.split_values
+FROM product p
+WHERE (sqlc.arg(status)::text = '' OR p.status = sqlc.arg(status)::text)
+  AND (NOT sqlc.arg(unpriced)::bool
+       OR EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL))
+  AND (sqlc.arg(q)::text = ''
+       OR strpos(lower(p.brand || ' ' || p.name), lower(sqlc.arg(q)::text)) > 0
+       OR EXISTS (SELECT 1 FROM variant v
+                  LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id
+                  LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+                  WHERE v.product_id = p.id
+                    AND strpos(lower(v.sku || ' ' || v.ean || ' ' || coalesce(s.sku, '')), lower(sqlc.arg(q)::text)) > 0))
+ORDER BY p.brand, p.model_key, p.id
+LIMIT sqlc.arg(max_rows);
+
+-- name: CountProducts :one
+SELECT count(*) AS total,
+       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL)) AS unpriced
+FROM product p;
 
 -- name: ListVariantsOfProducts :many
 SELECT v.id, v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
