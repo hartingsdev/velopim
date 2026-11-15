@@ -29,7 +29,7 @@
 - **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.
 - **Lieferzeit-Texte:** stehen fest im Code (`availability.Derive`), sollen konfigurierbar werden.
 - **Testbilder:** Die Beispieldaten haben unerreichbare Bildadressen (`example.test`); ein Sync damit erzeugt den Task „Bilder fehlen in Shopify“.
-- **Sync-Auslöser:** von Hand oder im festen Abstand (`VELOPIM_SYNC_INTERVAL`), nicht unmittelbar nach Import oder Freigabe.
+- **Automatischer Sync braucht den Schreibschalter:** Solange `SHOPIFY_WRITE_ENABLED=false` in der `.env` steht, wird nichts automatisch übertragen.
 - **Abholen nur als einzelne Datei:** Eine API mit mehreren Aufrufen oder Seiten wird noch nicht unterstützt ([30](decisions/0030-fetch-jobs.md)).
 - **Jobs ohne Ansicht:** Wartende und gelaufene Jobs sind in der Oberfläche nicht sichtbar, nur ihr Ergebnis (Importlauf, letzter Abruf, Aufgabe bei Fehler).
 - **Shopify-Grenzen:** 3 Optionen und 2048 Varianten je Produkt stehen als Konstanten im Code und sind gegen die verwendete API-Version zu prüfen.

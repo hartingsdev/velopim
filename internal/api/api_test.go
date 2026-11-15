@@ -963,7 +963,15 @@ func TestSources(t *testing.T) {
 }
 
 // fakeJobs records what was queued.
-type fakeJobs struct{ fetched []string }
+type fakeJobs struct {
+	fetched []string
+	syncs   int
+}
+
+func (f *fakeJobs) EnqueueSync(context.Context) error {
+	f.syncs++
+	return nil
+}
 
 func (f *fakeJobs) EnqueueFetch(_ context.Context, sourceID string) error {
 	f.fetched = append(f.fetched, sourceID)
@@ -1023,5 +1031,45 @@ func TestSourceFetchSettings(t *testing.T) {
 	// Without a queue the request is refused.
 	if rec := do(t, New(pool, "tester", nil), "POST", "/api/sources/hartje/fetch", jsonType, `{}`); rec.Code != http.StatusConflict {
 		t.Errorf("without queue: %d", rec.Code)
+	}
+}
+
+func TestChangesQueueASync(t *testing.T) {
+	pool := dbtest.New(t)
+	jobs := &fakeJobs{}
+	h := New(pool, "tester", nil, WithJobs(jobs), WithRawDir(t.TempDir()))
+	const jsonType = "application/json"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind, connector_config) VALUES
+		  ('example', 'Beispiel', 'csvfile', '{"delimiter": ";", "decimal_comma": true, "columns": {"sku": "Nr", "brand": "Marke", "name": "Name", "cost": "EK"}}');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	// Each of these can change what Shopify should show and must queue a
+	// sync; the read and the note must not.
+	steps := []struct {
+		name, method, path, contentType, body string
+		wantStatus                            int
+		queues                                bool
+	}{
+		{"import", "POST", "/api/sources/example/imports", "application/octet-stream", "Nr;Marke;Name;EK\n1;Beispielrad;City 3;500,00\n", http.StatusOK, true},
+		{"read tasks", "GET", "/api/tasks", "", "", http.StatusOK, false},
+		{"approve the model", "POST", "/api/tasks/1/decision", jsonType, `{"approve":true,"variant_prices":{"1":89900}}`, http.StatusNoContent, true},
+		{"refused decision", "POST", "/api/tasks/1/decision", jsonType, `{"approve":true}`, http.StatusConflict, false},
+		{"edit the product", "PATCH", "/api/products/1", jsonType, `{"name":"City 3 Neu"}`, http.StatusNoContent, true},
+		{"refused edit", "PATCH", "/api/products/1", jsonType, `{"name":""}`, http.StatusUnprocessableEntity, false},
+		{"set a price", "PATCH", "/api/variants/1", jsonType, `{"price_cents":84900}`, http.StatusNoContent, true},
+		{"select for the store", "PATCH", "/api/products/1", jsonType, `{"wanted":true}`, http.StatusNoContent, true},
+		{"note", "POST", "/api/products/1/notes", jsonType, `{"body":"intern"}`, http.StatusNoContent, false},
+	}
+	for _, s := range steps {
+		before := jobs.syncs
+		rec := do(t, h, s.method, s.path, s.contentType, s.body)
+		if rec.Code != s.wantStatus {
+			t.Fatalf("%s: status %d, want %d (%s)", s.name, rec.Code, s.wantStatus, rec.Body)
+		}
+		if queued := jobs.syncs > before; queued != s.queues {
+			t.Errorf("%s: sync queued = %v, want %v", s.name, queued, s.queues)
+		}
 	}
 }

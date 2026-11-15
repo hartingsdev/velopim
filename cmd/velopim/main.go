@@ -128,6 +128,7 @@ func serve(ctx context.Context) error {
 	queue, err := jobs.New(pool, jobs.Config{
 		Fetcher:      &jobs.Fetcher{Pool: pool, RawDir: rawDir(), Getenv: os.Getenv},
 		Store:        store,
+		SyncOnChange: shopifyConfig().WriteEnabled,
 		SyncInterval: syncInterval,
 	})
 	if err != nil {

@@ -233,6 +233,7 @@ func (s *server) patchProduct(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	s.changed(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -289,6 +290,7 @@ func (s *server) resplitProduct(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	s.changed(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"product_id": products[0].ID})
 }
 
@@ -369,5 +371,6 @@ func (s *server) patchVariant(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	s.changed(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }

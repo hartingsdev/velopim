@@ -148,6 +148,22 @@ func WithRawDir(dir string) Option { return func(s *server) { s.rawDir = dir } }
 // Jobs queues background work.
 type Jobs interface {
 	EnqueueFetch(ctx context.Context, sourceID string) error
+	// EnqueueSync queues a Shopify sync; it does nothing while writing to
+	// Shopify is switched off.
+	EnqueueSync(ctx context.Context) error
+}
+
+// changed is called after anything that can change what Shopify should
+// show: a decision, an edit, an import. It queues a sync. A failure to queue
+// must not fail the request that already succeeded; the next change or the
+// periodic sync catches up.
+func (s *server) changed(ctx context.Context) {
+	if s.jobs == nil {
+		return
+	}
+	if err := s.jobs.EnqueueSync(ctx); err != nil {
+		log.Printf("api: queueing the Shopify sync: %v", err)
+	}
 }
 
 // WithJobs sets the job queue; needed to fetch a supplier's file on request.
@@ -299,6 +315,7 @@ func (s *server) decideTask(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	s.changed(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -352,6 +369,7 @@ func (s *server) uploadImport(w http.ResponseWriter, r *http.Request) {
 		// message names what is wrong with it.
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "import failed", "issues": []string{err.Error()}})
 	default:
+		s.changed(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{
 			"run_id": res.RunID, "status": res.Status, "records": res.Records, "new": res.New, "changed": res.Changed,
 			"removed": res.Removed, "issues": res.Issues, "auto_applied": res.AutoApplied, "pending_approval": res.PendingApproval,
@@ -395,6 +413,7 @@ func (s *server) confirmImportRun(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		internalError(w, err)
 	default:
+		s.changed(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{"run_id": res.RunID, "removed": res.Removed})
 	}
 }

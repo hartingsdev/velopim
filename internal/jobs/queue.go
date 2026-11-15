@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"velopim/internal/db"
+	"velopim/internal/shopify"
 	"velopim/internal/shopsync"
 )
 
@@ -55,13 +56,22 @@ type SyncArgs struct{}
 
 func (SyncArgs) Kind() string { return "shopify_sync" }
 
+// InsertOpts: sync jobs are deliberately not unique. A change approved
+// while a sync is running must get a sync of its own; a unique job would be
+// dropped as "already running" and the change would wait for the next
+// trigger. A sync with nothing to send only reads the plan and is cheap.
 func (SyncArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 1, UniqueOpts: onePending}
+	return river.InsertOpts{MaxAttempts: 1}
 }
+
+// syncDelay lets a burst of approvals or a whole import finish before the
+// sync starts.
+const syncDelay = 5 * time.Second
 
 type fetchWorker struct {
 	river.WorkerDefaults[FetchSourceArgs]
 	fetcher *Fetcher
+	queue   *Queue
 }
 
 func (w *fetchWorker) Timeout(*river.Job[FetchSourceArgs]) time.Duration { return 30 * time.Minute }
@@ -72,6 +82,11 @@ func (w *fetchWorker) Work(ctx context.Context, job *river.Job[FetchSourceArgs])
 		return nil // the address was removed after the job was queued
 	}
 	if err != nil {
+		return err
+	}
+	// What the import changed without approval, e.g. availability, goes to
+	// Shopify right away.
+	if err := w.queue.EnqueueSync(ctx); err != nil {
 		return err
 	}
 	log.Printf("fetched %s: run %d, %d articles, %d new, %d changed, %d for approval",
@@ -108,6 +123,9 @@ func (w *syncWorker) Timeout(*river.Job[SyncArgs]) time.Duration { return 30 * t
 
 func (w *syncWorker) Work(ctx context.Context, _ *river.Job[SyncArgs]) error {
 	res, err := shopsync.Run(ctx, w.pool, w.store, time.Now())
+	if errors.Is(err, shopify.ErrWritesDisabled) {
+		return nil // switched off after the job was queued
+	}
 	if err != nil {
 		return err
 	}
@@ -122,6 +140,9 @@ type Config struct {
 	Fetcher *Fetcher
 	// Store is the Shopify client; nil disables the sync job.
 	Store shopsync.Store
+	// SyncOnChange queues a sync after imports, approvals and edits. Set it
+	// only when writing to Shopify is enabled.
+	SyncOnChange bool
 	// SyncInterval runs the Shopify sync periodically; zero means only on
 	// request.
 	SyncInterval time.Duration
@@ -130,6 +151,8 @@ type Config struct {
 // Queue runs the background jobs.
 type Queue struct {
 	client *river.Client[pgx.Tx]
+	// syncOnChange says whether EnqueueSync does anything.
+	syncOnChange bool
 }
 
 // Migrate creates or updates River's own tables.
@@ -144,9 +167,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 
 // New prepares the queue. Call Start to begin working jobs.
 func New(pool *pgxpool.Pool, cfg Config) (*Queue, error) {
-	q := &Queue{}
+	q := &Queue{syncOnChange: cfg.SyncOnChange && cfg.Store != nil}
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &fetchWorker{fetcher: cfg.Fetcher})
+	river.AddWorker(workers, &fetchWorker{fetcher: cfg.Fetcher, queue: q})
 	river.AddWorker(workers, &scheduleWorker{pool: pool, queue: q})
 
 	// Every minute: look for sources whose fetch is due.
@@ -189,8 +212,13 @@ func (q *Queue) EnqueueFetch(ctx context.Context, sourceID string) error {
 	return err
 }
 
-// EnqueueSync queues a Shopify sync.
+// EnqueueSync queues a Shopify sync a few seconds from now. It does nothing
+// when no store is configured or writing is switched off: then the sync
+// stays a dry run in the interface.
 func (q *Queue) EnqueueSync(ctx context.Context) error {
-	_, err := q.client.Insert(ctx, SyncArgs{}, nil)
+	if !q.syncOnChange {
+		return nil
+	}
+	_, err := q.client.Insert(ctx, SyncArgs{}, &river.InsertOpts{ScheduledAt: time.Now().Add(syncDelay)})
 	return err
 }
