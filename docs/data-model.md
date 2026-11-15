@@ -3,7 +3,8 @@
 Maßgeblich ist `db/migrations/`. Diese Seite erklärt, wozu die Tabellen da sind.
 
 ## Quellen und Importe
-- **`source`:** ein Lieferant oder Feed. Enthält die Art des Konnektors, dessen Konfiguration (z. B. Spaltenzuordnung der CSV-Datei) und das Mapping der Verfügbarkeit, beides als JSON.
+- **`source`:** ein Lieferant oder Feed. Enthält die Art des Konnektors, dessen Konfiguration (z. B. Spaltenzuordnung der CSV-Datei), das Mapping der Verfügbarkeit und die Abruf-Einstellung (Adresse, Abstand, Art der Anmeldung, Namen der Umgebungsvariablen) als JSON, dazu Zeitpunkt und Fehler des letzten Abrufs.
+- **`river_*`:** Tabellen der Job-Queue. River legt sie beim Serverstart selbst an; sie stehen nicht in `db/migrations/`.
 - **`import_run`:** ein Importlauf mit Status (`running`, `done`, `failed`, `held`), Pfad und Hash der unverändert abgelegten Originaldatei und einer Zusammenfassung (neu, geändert, entfallen, Mengenänderungen, Datenprobleme).
 - **`raw_record`:** eine Rohversion eines Artikels. Eine neue Zeile entsteht nur bei geändertem Inhalt; Zeilen werden nie geändert oder gelöscht.
 

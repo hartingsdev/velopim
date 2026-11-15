@@ -116,10 +116,31 @@ SELECT EXISTS (
 )::bool AS open;
 
 -- name: ListSourcesFull :many
-SELECT id, name, connector_kind, connector_config, availability_mapping FROM source ORDER BY name;
+SELECT id, name, connector_kind, connector_config, availability_mapping, fetch_config, last_fetch_at, last_fetch_error
+FROM source ORDER BY name;
 
 -- name: UpsertSource :exec
-INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping, fetch_config)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, connector_kind = EXCLUDED.connector_kind,
-    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping;
+    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping,
+    fetch_config = EXCLUDED.fetch_config;
+
+-- name: ListSourceFetchConfigs :many
+SELECT id, name, fetch_config, last_fetch_at FROM source ORDER BY id;
+
+-- name: GetSourceFetchConfig :one
+SELECT id, name, fetch_config, last_fetch_at FROM source WHERE id = $1;
+
+-- name: SetSourceFetchResult :exec
+UPDATE source SET last_fetch_at = $2, last_fetch_error = $3 WHERE id = $1;
+
+-- name: HasOpenSourceTask :one
+SELECT EXISTS (SELECT 1 FROM task t WHERE t.source_id = sqlc.arg(source_id)::text AND t.kind = sqlc.arg(kind)::text AND t.status = 'open')::bool AS open;
+
+-- name: InsertSourceTask :exec
+INSERT INTO task (kind, title, detail, priority, source_id) VALUES ($1, $2, $3, $4, $5);
+
+-- name: CloseSourceTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = 'system', note = sqlc.arg(note)::text
+WHERE source_id = sqlc.arg(source_id)::text AND kind = sqlc.arg(kind)::text AND status = 'open';

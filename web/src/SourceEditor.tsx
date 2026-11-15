@@ -24,7 +24,19 @@ const emptySource: SourceConfig = {
   connector_kind: "csvfile",
   connector_config: { delimiter: ";", decimal_comma: true, columns: {}, encoding: "" },
   availability_mapping: [],
+  fetch: { url: "", interval_minutes: 0, auth: "" },
+  last_fetch_at: null,
+  last_fetch_error: null,
 };
+
+const intervals = [
+  { minutes: 0, label: "nur auf Knopfdruck" },
+  { minutes: 15, label: "alle 15 Minuten" },
+  { minutes: 60, label: "stündlich" },
+  { minutes: 240, label: "alle 4 Stunden" },
+  { minutes: 720, label: "alle 12 Stunden" },
+  { minutes: 1440, label: "täglich" },
+];
 
 /** Form to create a supplier or change how its CSV files are read. */
 export function SourceEditor(props: { source: SourceConfig | null; onSaved: () => Promise<void> }) {
@@ -37,6 +49,7 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
   const [rules, setRules] = useState<MappingRule[]>(() =>
     (initial.availability_mapping as MappingRule[]).map((r) => ({ ...r, when: r.when ?? [] })),
   );
+  const [fetchConfig, setFetchConfig] = useState({ ...emptySource.fetch, ...initial.fetch });
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -75,6 +88,14 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
           attribute_columns: attributes.split(",").map((a) => a.trim()).filter(Boolean),
         },
         availability_mapping: rules,
+        fetch: {
+          url: fetchConfig.url.trim(),
+          interval_minutes: fetchConfig.url.trim() ? fetchConfig.interval_minutes : 0,
+          auth: fetchConfig.url.trim() ? fetchConfig.auth : "",
+          user_env: fetchConfig.auth === "basic" ? fetchConfig.user_env?.trim() : undefined,
+          secret_env: fetchConfig.auth ? fetchConfig.secret_env?.trim() : undefined,
+          header_name: fetchConfig.auth === "header" ? fetchConfig.header_name?.trim() : undefined,
+        },
       });
       setSaved(true);
       await props.onSaved();
@@ -211,6 +232,86 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
         unbekannt und das Rad nicht verkaufbar. Eine letzte Regel ohne Bedingung fängt alle übrigen Artikel auf.
       </p>
       <AvailabilityRules rules={rules} onChange={setRules} columnList={columnList} />
+
+      <h3>Automatisch abholen</h3>
+      <p className="hint">
+        velopim kann die Datei selbst von einer Adresse laden und importieren, statt auf einen Upload zu warten.
+        Zugangsdaten stehen nie hier: Du trägst sie in die Datei <code>.env</code> ein und nennst hier nur den Namen der
+        Variable. Der Name muss mit <code>VELOPIM_FETCH_</code> beginnen; nach einer Änderung an der <code>.env</code>{" "}
+        den Server neu starten.
+      </p>
+      <div className="fields">
+        <label className="wide">
+          Adresse der Datei (leer: nicht abholen)
+          <input
+            type="url"
+            value={fetchConfig.url}
+            placeholder="https://…"
+            onChange={(e) => setFetchConfig({ ...fetchConfig, url: e.target.value })}
+          />
+        </label>
+        <label>
+          Wie oft
+          <select
+            value={fetchConfig.interval_minutes}
+            onChange={(e) => setFetchConfig({ ...fetchConfig, interval_minutes: Number(e.target.value) })}
+          >
+            {intervals.map((i) => (
+              <option key={i.minutes} value={i.minutes}>
+                {i.label}
+              </option>
+            ))}
+            {!intervals.some((i) => i.minutes === fetchConfig.interval_minutes) && (
+              <option value={fetchConfig.interval_minutes}>alle {fetchConfig.interval_minutes} Minuten</option>
+            )}
+          </select>
+        </label>
+        <label>
+          Anmeldung
+          <select
+            value={fetchConfig.auth}
+            onChange={(e) => setFetchConfig({ ...fetchConfig, auth: e.target.value as typeof fetchConfig.auth })}
+          >
+            <option value="">keine</option>
+            <option value="basic">Benutzername und Passwort</option>
+            <option value="bearer">Token (Bearer)</option>
+            <option value="header">Schlüssel in einem Kopffeld</option>
+          </select>
+        </label>
+        {fetchConfig.auth === "basic" && (
+          <label>
+            Variable mit dem Benutzernamen
+            <input
+              type="text"
+              value={fetchConfig.user_env ?? ""}
+              placeholder="VELOPIM_FETCH_HARTJE_USER"
+              onChange={(e) => setFetchConfig({ ...fetchConfig, user_env: e.target.value.toUpperCase() })}
+            />
+          </label>
+        )}
+        {fetchConfig.auth === "header" && (
+          <label>
+            Name des Kopffelds
+            <input
+              type="text"
+              value={fetchConfig.header_name ?? ""}
+              placeholder="X-API-Key"
+              onChange={(e) => setFetchConfig({ ...fetchConfig, header_name: e.target.value })}
+            />
+          </label>
+        )}
+        {fetchConfig.auth !== "" && (
+          <label>
+            Variable mit {fetchConfig.auth === "basic" ? "dem Passwort" : "dem Token oder Schlüssel"}
+            <input
+              type="text"
+              value={fetchConfig.secret_env ?? ""}
+              placeholder="VELOPIM_FETCH_HARTJE_PASSWORD"
+              onChange={(e) => setFetchConfig({ ...fetchConfig, secret_env: e.target.value.toUpperCase() })}
+            />
+          </label>
+        )}
+      </div>
 
       {problem && (
         <p className="error" role="alert">

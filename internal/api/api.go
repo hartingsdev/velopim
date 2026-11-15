@@ -6,6 +6,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -133,6 +134,8 @@ type server struct {
 	store shopsync.Store
 	// rawDir is where original supplier files are kept.
 	rawDir string
+	// jobs is the background queue; nil when none is running.
+	jobs Jobs
 }
 
 // Option configures the API.
@@ -141,6 +144,14 @@ type Option func(*server)
 // WithRawDir sets where original supplier files are kept; needed to confirm
 // a held import.
 func WithRawDir(dir string) Option { return func(s *server) { s.rawDir = dir } }
+
+// Jobs queues background work.
+type Jobs interface {
+	EnqueueFetch(ctx context.Context, sourceID string) error
+}
+
+// WithJobs sets the job queue; needed to fetch a supplier's file on request.
+func WithJobs(jobs Jobs) Option { return func(s *server) { s.jobs = jobs } }
 
 // New returns the handler for everything under /api. actor is recorded as
 // the person behind every decision.
@@ -163,6 +174,7 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option)
 	mux.HandleFunc("POST /api/sources/{id}/imports", s.uploadImport)
 	mux.HandleFunc("GET /api/sources", s.listSources)
 	mux.HandleFunc("PUT /api/sources/{id}", s.putSource)
+	mux.HandleFunc("POST /api/sources/{id}/fetch", s.fetchSource)
 	mux.HandleFunc("POST /api/csv-preview", s.previewCSV)
 	mux.HandleFunc("GET /api/products", s.listProducts)
 	mux.HandleFunc("GET /api/supplier-items", s.searchSupplierItems)

@@ -103,7 +103,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, message, issues);
   }
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+  // Some answers have no body (204, 202).
+  const text = await res.text();
+  return text === "" ? (undefined as T) : (JSON.parse(text) as T);
 }
 
 export class ApiError extends Error {
@@ -487,6 +489,26 @@ export interface SourceConfig {
   connector_config: CsvConfig;
   /** Ordered rules that turn raw fields into an availability status. */
   availability_mapping: unknown[];
+  /** Where velopim collects the file itself, and how often. */
+  fetch: FetchConfig;
+  last_fetch_at: string | null;
+  last_fetch_error: string | null;
+}
+
+export interface FetchConfig {
+  url: string;
+  /** 0: only on request. */
+  interval_minutes: number;
+  auth: "" | "basic" | "bearer" | "header";
+  /** Names of environment variables; the secrets themselves stay in .env. */
+  user_env?: string;
+  secret_env?: string;
+  header_name?: string;
+}
+
+/** Queues collecting the source's file now. */
+export function fetchSourceNow(id: string): Promise<void> {
+  return send("POST", `/api/sources/${encodeURIComponent(id)}/fetch`, {});
 }
 
 export async function listSources(): Promise<SourceConfig[]> {
@@ -494,7 +516,10 @@ export async function listSources(): Promise<SourceConfig[]> {
   return body.sources;
 }
 
-export function saveSource(id: string, source: Omit<SourceConfig, "id" | "connector_kind">): Promise<void> {
+export function saveSource(
+  id: string,
+  source: Omit<SourceConfig, "id" | "connector_kind" | "last_fetch_at" | "last_fetch_error">,
+): Promise<void> {
   return send("PUT", `/api/sources/${encodeURIComponent(id)}`, source);
 }
 

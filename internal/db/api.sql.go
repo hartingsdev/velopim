@@ -35,7 +35,7 @@ SELECT (CASE
            WHEN a.type = 'availability_status_change' THEN 'availability'
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
-           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('import_held', 'data_issue', 'fetch_failed') THEN 'import'
            WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END)::text AS category, count(*) AS count
@@ -225,7 +225,7 @@ SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.cl
            WHEN a.type = 'availability_status_change' THEN 'availability'
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
-           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('import_held', 'data_issue', 'fetch_failed') THEN 'import'
            WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END)::text AS category
@@ -240,7 +240,7 @@ WHERE (t.status = 'open') = $1::bool
            WHEN a.type = 'availability_status_change' THEN 'availability'
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
-           WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('import_held', 'data_issue', 'fetch_failed') THEN 'import'
            WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END) = $2::text)

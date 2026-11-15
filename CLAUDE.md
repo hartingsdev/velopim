@@ -24,7 +24,7 @@ Pflege:
 
 ## Leitplanken
 - Niemals in den Live-Shop schreiben. Sync läuft standardmäßig im Dry-Run, echte Schreibzugriffe nur gegen den Development-Store `fahrrad-ass-dev` (`SHOPIFY_WRITE_ENABLED=true` muss explizit gesetzt sein). Die Sperre im Client für Nicht-Development-Stores nicht entfernen oder umgehen.
-- Zugangsdaten nur über Umgebungsvariablen (`.env`, nicht eingecheckt; `.env.example` pflegen).
+- Zugangsdaten nur über Umgebungsvariablen (`.env`, nicht eingecheckt; `.env.example` pflegen). Abruf-Einstellungen eines Lieferanten nennen nur den Namen einer Variable mit dem Präfix `VELOPIM_FETCH_`; dieses Präfix nicht aufweichen.
 - Interne Daten dürfen nie zu Shopify gelangen: Der Sync liest nur aus der Projektion in `internal/shopify`.
 - Hartje-Format und -Zugang sind unbekannt: keine Annahmen treffen.
 - Einfach und erweiterbar vor früh abstrahiert. Keine Abstraktion ohne zweiten Anwendungsfall, Ausnahme: Konnektor- und Task-Adapter-Schnittstelle.

@@ -24,6 +24,7 @@ import (
 	"velopim/internal/api"
 	"velopim/internal/db"
 	"velopim/internal/importer"
+	"velopim/internal/jobs"
 	"velopim/internal/shopify"
 	"velopim/internal/shopsync"
 	"velopim/web"
@@ -68,30 +69,6 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-// periodicSync runs the Shopify sync at a fixed interval until ctx ends.
-// Failures of single products become tasks; anything else is logged and
-// tried again at the next tick.
-func periodicSync(ctx context.Context, pool *pgxpool.Pool, store shopsync.Store, interval time.Duration) {
-	log.Printf("periodic Shopify sync every %s", interval)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			res, err := shopsync.Run(ctx, pool, store, time.Now())
-			if err != nil {
-				log.Printf("periodic sync: %v", err)
-				continue
-			}
-			if res.Synced > 0 || res.Failed > 0 {
-				log.Printf("periodic sync: %d synced, %d failed", res.Synced, res.Failed)
-			}
-		}
-	}
-}
-
 // rawDir is where original supplier files are kept.
 func rawDir() string {
 	return filepath.Join(env("VELOPIM_DATA_DIR", "data"), "raw")
@@ -131,22 +108,41 @@ func serve(ctx context.Context) error {
 		}
 		store = client
 	}
-	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, api.WithRawDir(rawDir())))
-
-	// Optional: send pending changes to Shopify at a fixed interval, e.g.
-	// VELOPIM_SYNC_INTERVAL=15m. Off by default; it also needs writing to be
-	// enabled.
+	// Background jobs: fetching supplier files on schedule and, optionally,
+	// the periodic Shopify sync (VELOPIM_SYNC_INTERVAL=15m; needs writing to
+	// be enabled). River keeps its own tables and creates them here.
+	var syncInterval time.Duration
 	if v := os.Getenv("VELOPIM_SYNC_INTERVAL"); v != "" && store != nil {
-		interval, err := time.ParseDuration(v)
-		if err != nil || interval < time.Minute {
+		syncInterval, err = time.ParseDuration(v)
+		if err != nil || syncInterval < time.Minute {
 			return fmt.Errorf("VELOPIM_SYNC_INTERVAL %q must be a duration of at least 1m, e.g. 15m", v)
 		}
 		if !shopifyConfig().WriteEnabled {
-			log.Printf("periodic sync is configured but writing to Shopify is switched off; not started")
-		} else {
-			go periodicSync(ctx, pool, store, interval)
+			log.Printf("periodic sync is configured but writing to Shopify is switched off; not scheduled")
+			syncInterval = 0
 		}
 	}
+	if err := jobs.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("job queue tables: %w", err)
+	}
+	queue, err := jobs.New(pool, jobs.Config{
+		Fetcher:      &jobs.Fetcher{Pool: pool, RawDir: rawDir(), Getenv: os.Getenv},
+		Store:        store,
+		SyncInterval: syncInterval,
+	})
+	if err != nil {
+		return err
+	}
+	if err := queue.Start(ctx); err != nil {
+		return fmt.Errorf("job queue: %w", err)
+	}
+	defer func() {
+		stop, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = queue.Stop(stop)
+	}()
+
+	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, api.WithRawDir(rawDir()), api.WithJobs(queue)))
 	mux.Handle("/", web.Handler())
 
 	// There is no login: keep the default on localhost.

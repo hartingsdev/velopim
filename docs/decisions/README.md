@@ -33,3 +33,4 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 27 | [Verfügbarkeit wird nicht kopiert, sondern live gelesen](0027-availability-is-live.md) | Vorläufig, ohne Betreiber entschieden |
 | 28 | [Nutzungsrichtlinie je Lieferant, Marke und Datengruppe](0028-usage-policy.md) | Angenommen, umgesetzt; Bedeutung der Stufen vorläufig |
 | 29 | [Shopify-Sync über productSet, Verkaufbarkeit über Bestandsführung](0029-shopify-sync.md) | Vorläufig, gegen den Development-Store geprüft |
+| 30 | [velopim holt Lieferantendateien selbst ab, über Jobs in River](0030-fetch-jobs.md) | Angenommen (Vorgabe des Betreibers), umgesetzt; Ausgestaltung vorläufig |

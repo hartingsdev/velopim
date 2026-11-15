@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { deleteUsagePolicy, saveUsagePolicy, type FieldGroup, type Policy, type SourceConfig, type UsagePolicyList } from "./api";
+import { deleteUsagePolicy, fetchSourceNow, saveUsagePolicy, type FieldGroup, type Policy, type SourceConfig, type UsagePolicyList } from "./api";
+import { formatDate } from "./format";
 import { SourceEditor } from "./SourceEditor";
 
 interface Props {
@@ -115,6 +116,7 @@ export function Sources({ list, sources, onChanged, onError }: Props) {
               </table>
             </div>
             <ExceptionForm sourceID={source.id} onSave={(p) => run(() => saveUsagePolicy(p))} />
+            <FetchStatus source={sources.find((s) => s.id === source.id)} onChanged={onChanged} onError={onError} />
             <details className="source-settings">
               <summary>Datei-Einstellungen (Spalten, Zeichensatz, Verfügbarkeit)</summary>
               <SourceEditor source={sources.find((s) => s.id === source.id) ?? null} onSaved={onChanged} />
@@ -123,6 +125,42 @@ export function Sources({ list, sources, onChanged, onError }: Props) {
         );
       })}
     </>
+  );
+}
+
+/** When the file was last collected, and the button to collect it now. */
+function FetchStatus(props: { source: SourceConfig | undefined; onChanged: () => Promise<void>; onError: (m: string | null) => void }) {
+  const { source, onChanged, onError } = props;
+  const [queued, setQueued] = useState(false);
+  if (!source || !source.fetch.url) return null;
+  const every = source.fetch.interval_minutes;
+
+  async function fetchNow() {
+    try {
+      await fetchSourceNow(source!.id);
+      setQueued(true);
+      onError(null);
+      // The job runs in the background; look again shortly.
+      window.setTimeout(() => void onChanged().then(() => setQueued(false)), 4000);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="fetch-status">
+      <p className="item">
+        Wird abgeholt von {source.fetch.url},{" "}
+        {every === 0 ? "nur auf Knopfdruck" : every % 60 === 0 ? `alle ${every / 60} Stunden` : `alle ${every} Minuten`}.{" "}
+        {source.last_fetch_at ? `Zuletzt ${formatDate(source.last_fetch_at)}.` : "Noch nie abgeholt."}
+      </p>
+      {source.last_fetch_error && <p className="error">Letzter Versuch fehlgeschlagen: {source.last_fetch_error}</p>}
+      <div className="decide">
+        <button type="button" disabled={queued} onClick={() => void fetchNow()}>
+          {queued ? "Wird abgeholt …" : "Jetzt abholen"}
+        </button>
+      </div>
+    </div>
   );
 }
 

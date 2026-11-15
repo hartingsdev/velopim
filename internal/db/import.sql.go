@@ -25,6 +25,22 @@ func (q *Queries) CloseImportHeldTasks(ctx context.Context, arg CloseImportHeldT
 	return err
 }
 
+const closeSourceTasks = `-- name: CloseSourceTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = 'system', note = $1::text
+WHERE source_id = $2::text AND kind = $3::text AND status = 'open'
+`
+
+type CloseSourceTasksParams struct {
+	Note     string
+	SourceID string
+	Kind     string
+}
+
+func (q *Queries) CloseSourceTasks(ctx context.Context, arg CloseSourceTasksParams) error {
+	_, err := q.db.Exec(ctx, closeSourceTasks, arg.Note, arg.SourceID, arg.Kind)
+	return err
+}
+
 const createImportRun = `-- name: CreateImportRun :one
 INSERT INTO import_run (source_id, status, file_path, file_sha256, record_count, started_at)
 VALUES ($1, 'running', $2, $3, $4, $5) RETURNING id
@@ -158,6 +174,29 @@ func (q *Queries) GetPreviousRunIssues(ctx context.Context, sourceID string) ([]
 	return issues, err
 }
 
+const getSourceFetchConfig = `-- name: GetSourceFetchConfig :one
+SELECT id, name, fetch_config, last_fetch_at FROM source WHERE id = $1
+`
+
+type GetSourceFetchConfigRow struct {
+	ID          string
+	Name        string
+	FetchConfig []byte
+	LastFetchAt *time.Time
+}
+
+func (q *Queries) GetSourceFetchConfig(ctx context.Context, id string) (GetSourceFetchConfigRow, error) {
+	row := q.db.QueryRow(ctx, getSourceFetchConfig, id)
+	var i GetSourceFetchConfigRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.FetchConfig,
+		&i.LastFetchAt,
+	)
+	return i, err
+}
+
 const hasOpenImportTask = `-- name: HasOpenImportTask :one
 SELECT EXISTS (
     SELECT 1 FROM task t JOIN import_run r ON r.id = t.import_run_id
@@ -172,6 +211,22 @@ type HasOpenImportTaskParams struct {
 
 func (q *Queries) HasOpenImportTask(ctx context.Context, arg HasOpenImportTaskParams) (bool, error) {
 	row := q.db.QueryRow(ctx, hasOpenImportTask, arg.SourceID, arg.Kind)
+	var open bool
+	err := row.Scan(&open)
+	return open, err
+}
+
+const hasOpenSourceTask = `-- name: HasOpenSourceTask :one
+SELECT EXISTS (SELECT 1 FROM task t WHERE t.source_id = $1::text AND t.kind = $2::text AND t.status = 'open')::bool AS open
+`
+
+type HasOpenSourceTaskParams struct {
+	SourceID string
+	Kind     string
+}
+
+func (q *Queries) HasOpenSourceTask(ctx context.Context, arg HasOpenSourceTaskParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenSourceTask, arg.SourceID, arg.Kind)
 	var open bool
 	err := row.Scan(&open)
 	return open, err
@@ -291,6 +346,29 @@ func (q *Queries) InsertRawRecord(ctx context.Context, arg InsertRawRecordParams
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertSourceTask = `-- name: InsertSourceTask :exec
+INSERT INTO task (kind, title, detail, priority, source_id) VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertSourceTaskParams struct {
+	Kind     string
+	Title    string
+	Detail   string
+	Priority int16
+	SourceID *string
+}
+
+func (q *Queries) InsertSourceTask(ctx context.Context, arg InsertSourceTaskParams) error {
+	_, err := q.db.Exec(ctx, insertSourceTask,
+		arg.Kind,
+		arg.Title,
+		arg.Detail,
+		arg.Priority,
+		arg.SourceID,
+	)
+	return err
 }
 
 const insertSupplierItem = `-- name: InsertSupplierItem :one
@@ -494,8 +572,45 @@ func (q *Queries) ListPricingRules(ctx context.Context) ([]ListPricingRulesRow, 
 	return items, nil
 }
 
+const listSourceFetchConfigs = `-- name: ListSourceFetchConfigs :many
+SELECT id, name, fetch_config, last_fetch_at FROM source ORDER BY id
+`
+
+type ListSourceFetchConfigsRow struct {
+	ID          string
+	Name        string
+	FetchConfig []byte
+	LastFetchAt *time.Time
+}
+
+func (q *Queries) ListSourceFetchConfigs(ctx context.Context) ([]ListSourceFetchConfigsRow, error) {
+	rows, err := q.db.Query(ctx, listSourceFetchConfigs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSourceFetchConfigsRow
+	for rows.Next() {
+		var i ListSourceFetchConfigsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.FetchConfig,
+			&i.LastFetchAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSourcesFull = `-- name: ListSourcesFull :many
-SELECT id, name, connector_kind, connector_config, availability_mapping FROM source ORDER BY name
+SELECT id, name, connector_kind, connector_config, availability_mapping, fetch_config, last_fetch_at, last_fetch_error
+FROM source ORDER BY name
 `
 
 type ListSourcesFullRow struct {
@@ -504,6 +619,9 @@ type ListSourcesFullRow struct {
 	ConnectorKind       string
 	ConnectorConfig     []byte
 	AvailabilityMapping []byte
+	FetchConfig         []byte
+	LastFetchAt         *time.Time
+	LastFetchError      *string
 }
 
 func (q *Queries) ListSourcesFull(ctx context.Context) ([]ListSourcesFullRow, error) {
@@ -521,6 +639,9 @@ func (q *Queries) ListSourcesFull(ctx context.Context) ([]ListSourcesFullRow, er
 			&i.ConnectorKind,
 			&i.ConnectorConfig,
 			&i.AvailabilityMapping,
+			&i.FetchConfig,
+			&i.LastFetchAt,
+			&i.LastFetchError,
 		); err != nil {
 			return nil, err
 		}
@@ -614,6 +735,21 @@ func (q *Queries) ModelWasAccepted(ctx context.Context, modelKey string) (bool, 
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const setSourceFetchResult = `-- name: SetSourceFetchResult :exec
+UPDATE source SET last_fetch_at = $2, last_fetch_error = $3 WHERE id = $1
+`
+
+type SetSourceFetchResultParams struct {
+	ID             string
+	LastFetchAt    *time.Time
+	LastFetchError *string
+}
+
+func (q *Queries) SetSourceFetchResult(ctx context.Context, arg SetSourceFetchResultParams) error {
+	_, err := q.db.Exec(ctx, setSourceFetchResult, arg.ID, arg.LastFetchAt, arg.LastFetchError)
+	return err
 }
 
 const supersedePendingActions = `-- name: SupersedePendingActions :many
@@ -742,10 +878,11 @@ func (q *Queries) UpdateSupplierItem(ctx context.Context, arg UpdateSupplierItem
 }
 
 const upsertSource = `-- name: UpsertSource :exec
-INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO source (id, name, connector_kind, connector_config, availability_mapping, fetch_config)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, connector_kind = EXCLUDED.connector_kind,
-    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping
+    connector_config = EXCLUDED.connector_config, availability_mapping = EXCLUDED.availability_mapping,
+    fetch_config = EXCLUDED.fetch_config
 `
 
 type UpsertSourceParams struct {
@@ -754,6 +891,7 @@ type UpsertSourceParams struct {
 	ConnectorKind       string
 	ConnectorConfig     []byte
 	AvailabilityMapping []byte
+	FetchConfig         []byte
 }
 
 func (q *Queries) UpsertSource(ctx context.Context, arg UpsertSourceParams) error {
@@ -763,6 +901,7 @@ func (q *Queries) UpsertSource(ctx context.Context, arg UpsertSourceParams) erro
 		arg.ConnectorKind,
 		arg.ConnectorConfig,
 		arg.AvailabilityMapping,
+		arg.FetchConfig,
 	)
 	return err
 }

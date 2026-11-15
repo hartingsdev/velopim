@@ -8,7 +8,7 @@ velopim steht zwischen den Lieferanten und Shopify. Shopify bleibt Shop, Checkou
 | Backend | Go, ein Binary, HTTP mit `net/http`, JSON-API unter `/api` | [1](decisions/0001-go-backend.md) |
 | Datenbank | PostgreSQL 17, Migrationen mit `goose` | [2](decisions/0002-postgresql.md) |
 | Datenbankzugriff | `pgx` + `sqlc`: SQL in `db/queries/`, generierter Code in `internal/db/` | [14](decisions/0014-sqlc.md) |
-| Hintergrundjobs | River, Queue in PostgreSQL (geplant, noch nicht eingebaut) | [2](decisions/0002-postgresql.md) |
+| Hintergrundjobs | River, Queue in PostgreSQL; laufen im Serverprozess | [30](decisions/0030-fetch-jobs.md) |
 | Oberfläche | React + TypeScript + Vite in `web/`, per `go:embed` im Binary | [3](decisions/0003-react-frontend.md) |
 | Shopify | Admin GraphQL API `2026-10`, Anmeldung per Client Credentials | [29](decisions/0029-shopify-sync.md) |
 | Tests | `go test`, tabellengetrieben | |
@@ -29,6 +29,8 @@ internal/tasks/          Entscheidung über Tasks
 internal/catalog/        Gruppierung zu Produkten, Anlegen von Produkten und Varianten
 internal/shopify/        Projektion, Diff, Client für die Admin-API
 internal/shopsync/       Sync: Plan und Übertragung je Produkt
+internal/fetch/          Datei eines Lieferanten von einer Adresse laden
+internal/jobs/           Hintergrundjobs (River): Abrufe einplanen und ausführen, Shopify-Sync
 cmd/introspect/          Entwicklungshilfe: Typen der Admin-API des Stores anzeigen (nur lesend)
 internal/api/            HTTP-Handler
 internal/db/             von sqlc generiert, nicht von Hand ändern
@@ -43,7 +45,7 @@ docs/                    diese Dokumentation
 Die Fachlogik (`rules`, `pricing`, `availability`, `actions`, `catalog`, `shopify`) ist rein: keine Datenbank, keine Uhr, keine Netzwerkzugriffe. Nur `importer`, `tasks` und `api` sprechen mit der Datenbank.
 
 ## Datenfluss
-1. **Holen:** Ein Konnektor liest die Lieferung. Die Originaldatei wird unverändert mit Hash abgelegt.
+1. **Holen:** Die Lieferung kommt per Upload, per Befehl oder wird von einem Job von einer Adresse geladen ([30](decisions/0030-fetch-jobs.md)). Ein Konnektor liest sie. Die Originaldatei wird unverändert mit Hash abgelegt.
 2. **Normalisieren:** Jeder Datensatz wird ein `supplier_item`. Eine neue Rohversion entsteht nur, wenn sich der Inhalt geändert hat. Die Verfügbarkeit wird über das Mapping der Quelle bestimmt.
 3. **Vergleichen:** Unterschiede zum vorigen Stand werden Aktionen. Die Regel-Engine entscheidet: automatisch oder Freigabe. Eine Freigabe wird ein Task. Neue Artikel werden je Modell zu einer Aktion zusammengefasst ([22](decisions/0022-new-model-one-task.md)).
 4. **Übernehmen:** Freigegebene und automatische Aktionen ändern den eigenen Katalog und schreiben `field_change`. Neue Modelle legen Produkte und Varianten an, EK-Änderungen ändern den Verkaufspreis um denselben Betrag, Beschreibung, Bilder, UVP und EAN werden kopiert. Verfügbarkeit wird nicht kopiert ([27](decisions/0027-availability-is-live.md)).
@@ -65,7 +67,8 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `GET /api/tasks?status=open\|closed&category=…&q=…` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells, Zählern gesamt und je Kategorie. Kategorien: `price`, `new_model`, `availability`, `removed`, `content`, `import`, `other`. `q` sucht in Titel, Artikelnummern und EANs |
 | `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}` plus Korrekturen: `split_by`, `variant_prices`, `price_cents`; 409, wenn der Task nicht mehr offen ist; 422 mit Gründen, wenn sich ein Modell so nicht anlegen lässt |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
-| `GET /api/sources`, `PUT /api/sources/{id}` | Lieferanten mit CSV-Einstellungen und Verfügbarkeitsregeln lesen, anlegen, ändern; 422 mit Grund bei ungültiger Einstellung |
+| `GET /api/sources`, `PUT /api/sources/{id}` | Lieferanten mit CSV-Einstellungen, Verfügbarkeitsregeln und Abruf-Einstellung lesen, anlegen, ändern; 422 mit Grund bei ungültiger Einstellung |
+| `POST /api/sources/{id}/fetch` | Abholen jetzt einreihen (202); 409 ohne Adresse oder ohne laufende Job-Queue |
 | `POST /api/csv-preview` | Kopfzeile und erste Zeilen einer Datei lesen, Trennzeichen und Zeichensatz erkennen; speichert nichts |
 | `POST /api/sources/{id}/imports` | Lieferantendatei importieren; der Rumpf ist die Datei (`application/octet-stream`, höchstens 256 MB); 422 mit Grund, wenn der Konnektor sie nicht lesen kann |
 | `POST /api/import-runs/{id}/confirm` | angehaltene Lieferung als vollständig bestätigen; 409, wenn der Lauf nicht angehalten oder nicht mehr der neueste ist |

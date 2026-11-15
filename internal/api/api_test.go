@@ -961,3 +961,67 @@ func TestSources(t *testing.T) {
 		t.Errorf("preview with the wrong content type: %d", rec.Code)
 	}
 }
+
+// fakeJobs records what was queued.
+type fakeJobs struct{ fetched []string }
+
+func (f *fakeJobs) EnqueueFetch(_ context.Context, sourceID string) error {
+	f.fetched = append(f.fetched, sourceID)
+	return nil
+}
+
+func TestSourceFetchSettings(t *testing.T) {
+	pool := dbtest.New(t)
+	jobs := &fakeJobs{}
+	h := New(pool, "tester", nil, WithJobs(jobs))
+	const jsonType = "application/json"
+	body := func(fetch string) string {
+		return `{"name":"Hartje","connector_config":{"delimiter":";","columns":{"sku":"Nr"}},"fetch":` + fetch + `}`
+	}
+	cases := []struct {
+		name, fetch string
+		want        int
+	}{
+		{"no fetch settings", `{}`, http.StatusNoContent},
+		{"not a web address", `{"url":"file:///etc/passwd"}`, http.StatusUnprocessableEntity},
+		{"secret variable outside the prefix", `{"url":"https://feed.test/a.csv","auth":"bearer","secret_env":"DATABASE_URL"}`, http.StatusUnprocessableEntity},
+		{"interval too short", `{"url":"https://feed.test/a.csv","interval_minutes":1}`, http.StatusUnprocessableEntity},
+		{"valid", `{"url":" https://feed.test/a.csv ","interval_minutes":120,"auth":"basic","user_env":"VELOPIM_FETCH_HARTJE_USER","secret_env":"VELOPIM_FETCH_HARTJE_PASSWORD"}`, http.StatusNoContent},
+	}
+	// Without an address there is nothing to fetch.
+	if rec := do(t, h, "PUT", "/api/sources/hartje", jsonType, body(`{}`)); rec.Code != http.StatusNoContent {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(t, h, "POST", "/api/sources/hartje/fetch", jsonType, `{}`); rec.Code != http.StatusConflict {
+		t.Errorf("fetch without address: %d, want 409", rec.Code)
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "PUT", "/api/sources/hartje", jsonType, body(c.fetch)); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+	rec := do(t, h, "GET", "/api/sources", "", "")
+	out := rec.Body.String()
+	if !strings.Contains(out, `"url":"https://feed.test/a.csv"`) || !strings.Contains(out, `"interval_minutes":120`) ||
+		!strings.Contains(out, `"user_env":"VELOPIM_FETCH_HARTJE_USER"`) || !strings.Contains(out, `"last_fetch_at":null`) {
+		t.Errorf("stored fetch settings: %s", out)
+	}
+
+	// "Fetch now" queues a job; a form post or an unknown source does not.
+	if rec := do(t, h, "POST", "/api/sources/hartje/fetch", "application/x-www-form-urlencoded", ""); rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("form post: %d", rec.Code)
+	}
+	if rec := do(t, h, "POST", "/api/sources/nobody/fetch", jsonType, `{}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown source: %d", rec.Code)
+	}
+	if rec := do(t, h, "POST", "/api/sources/hartje/fetch", jsonType, `{}`); rec.Code != http.StatusAccepted {
+		t.Errorf("fetch now: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Join(jobs.fetched, ",") != "hartje" {
+		t.Errorf("queued: %v", jobs.fetched)
+	}
+	// Without a queue the request is refused.
+	if rec := do(t, New(pool, "tester", nil), "POST", "/api/sources/hartje/fetch", jsonType, `{}`); rec.Code != http.StatusConflict {
+		t.Errorf("without queue: %d", rec.Code)
+	}
+}

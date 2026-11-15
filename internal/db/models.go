@@ -152,6 +152,9 @@ type Source struct {
 	ConnectorConfig     []byte
 	AvailabilityMapping []byte
 	CreatedAt           time.Time
+	FetchConfig         []byte
+	LastFetchAt         *time.Time
+	LastFetchError      *string
 }
 
 type SupplierItem struct {
@@ -197,6 +200,7 @@ type Task struct {
 	ClosedAt       *time.Time
 	ClosedBy       *string
 	Note           *string
+	SourceID       *string
 }
 
 type UsagePolicy struct {

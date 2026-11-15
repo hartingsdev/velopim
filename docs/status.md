@@ -21,6 +21,8 @@
 | Nutzungsrichtlinie je Lieferant, Marke und Datengruppe, gepflegt im Reiter „Lieferanten“ | `catalog`, `importer`, `api`, `web` |
 | Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Bilder werden behalten statt neu geladen, Veröffentlichen-Task, Fehler-Task; `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
+| Abholen per Job: Datei von einer Adresse laden (mit Anmeldung über Umgebungsvariablen), zeitgesteuert oder auf Knopfdruck; Fehler als Aufgabe | `fetch`, `jobs`, `api`, `web` |
+| Hintergrundjobs mit River: Abrufe einplanen und ausführen, Shopify-Sync im festen Abstand | `jobs` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import per Befehl (`velopim import <quelle> <datei>`) und per Datei-Upload im Reiter „Importe“ | `cmd/velopim`, `api`, `web` |
@@ -33,8 +35,7 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 - Sync unmittelbar nach Import oder Freigabe (bisher von Hand oder im festen Abstand)
 - Veröffentlichung im Vertriebskanal „Onlineshop“ (braucht das Recht `write_publications`)
 - Matching bestehender Shopify-Produkte
-- Andere Formate als CSV (BMEcat, veloconnect, API)
-- Hintergrundjobs (River)
+- Andere Formate als CSV und Abruf über eine API mit mehreren Aufrufen (BMEcat, veloconnect)
 - Hartje einrichten (Format unbekannt). Liefert Hartje eine CSV-Datei, geht das ohne Code im Reiter „Lieferanten“
 
 ## MVP-Umfang
