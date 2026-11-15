@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { previewCsv, saveSource, type CsvPreview, type SourceConfig } from "./api";
+import { AvailabilityRules, type MappingRule } from "./AvailabilityRules";
 
 const targets: { key: string; label: string; required?: boolean }[] = [
   { key: "sku", label: "Artikelnummer", required: true },
@@ -17,12 +18,6 @@ const targets: { key: string; label: string; required?: boolean }[] = [
   { key: "rrp", label: "UVP" },
 ];
 
-const exampleMapping = `[
-  {"name": "auf Lager", "when": [{"field": "Bestand", "op": "gt", "value": "0"}], "status": "in_stock", "quantity_field": "Bestand"},
-  {"name": "mit Termin", "when": [{"field": "Liefertermin", "op": "not_empty"}], "status": "preorder", "date_field": "Liefertermin", "date_layout": "02.01.2006"},
-  {"name": "sonst", "when": [], "status": "unavailable"}
-]`;
-
 const emptySource: SourceConfig = {
   id: "",
   name: "",
@@ -39,8 +34,8 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
   const [name, setName] = useState(initial.name);
   const [config, setConfig] = useState(initial.connector_config);
   const [attributes, setAttributes] = useState((initial.connector_config.attribute_columns ?? []).join(", "));
-  const [mapping, setMapping] = useState(
-    initial.availability_mapping.length > 0 ? JSON.stringify(initial.availability_mapping, null, 2) : "[]",
+  const [rules, setRules] = useState<MappingRule[]>(() =>
+    (initial.availability_mapping as MappingRule[]).map((r) => ({ ...r, when: r.when ?? [] })),
   );
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -64,15 +59,9 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
     e.preventDefault();
     setProblem(null);
     setSaved(false);
-    let rules: unknown;
-    try {
-      rules = JSON.parse(mapping.trim() || "[]");
-    } catch {
-      setProblem("Die Regeln zur Verfügbarkeit sind kein gültiges JSON.");
-      return;
-    }
-    if (!Array.isArray(rules)) {
-      setProblem("Die Regeln zur Verfügbarkeit müssen eine Liste sein: [ … ]");
+    const incomplete = rules.findIndex((r) => r.when.some((c) => c.field.trim() === ""));
+    if (incomplete >= 0) {
+      setProblem(`Verfügbarkeit, Regel ${incomplete + 1}: Bei einer Bedingung fehlt die Spalte.`);
       return;
     }
     const columns = Object.fromEntries(Object.entries(config.columns).filter(([, column]) => column.trim() !== ""));
@@ -218,21 +207,10 @@ export function SourceEditor(props: { source: SourceConfig | null; onSaved: () =
 
       <h3>Verfügbarkeit</h3>
       <p className="hint">
-        Geordnete Regeln, die erste passende gilt. Status: in_stock, orderable, preorder, on_request, unavailable,
-        discontinued. Vergleiche: eq, contains, empty, not_empty, gt, lte. Ohne passende Regel ist die Verfügbarkeit
-        unbekannt und das Rad nicht verkaufbar.{" "}
-        <button type="button" className="link" onClick={() => setMapping(exampleMapping)}>
-          Beispiel einsetzen
-        </button>
+        Die Regeln werden von oben nach unten geprüft, die erste passende gilt. Passt keine, ist die Verfügbarkeit
+        unbekannt und das Rad nicht verkaufbar. Eine letzte Regel ohne Bedingung fängt alle übrigen Artikel auf.
       </p>
-      <textarea
-        rows={8}
-        className="code"
-        value={mapping}
-        onChange={(e) => setMapping(e.target.value)}
-        aria-label="Regeln zur Verfügbarkeit als JSON"
-        spellCheck={false}
-      />
+      <AvailabilityRules rules={rules} onChange={setRules} columnList={columnList} />
 
       {problem && (
         <p className="error" role="alert">

@@ -632,3 +632,21 @@ button.link {
 details.task > summary {
   cursor: pointer;
 }
+
+.mapping-rule {
+  margin-top: 0.75rem;
+}
+
+.mapping-rule .fields {
+  margin-top: 0.4rem;
+}
+
+.mapping-rule .condition input {
+  width: auto;
+  flex: 1 1 8rem;
+  text-align: left;
+}
+
+.mapping-rule > button {
+  margin-bottom: 0.6rem;
+}
