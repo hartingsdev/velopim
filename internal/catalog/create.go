@@ -3,21 +3,24 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"velopim/internal/connector"
 	"velopim/internal/db"
 	"velopim/internal/pricing"
 )
 
-// BlockedError says why the articles of a model cannot become products as
-// cut. The person deciding has to choose other split axes.
+// BlockedError says why an approval cannot be carried out as asked, e.g.
+// why the articles of a model cannot become products as cut.
 type BlockedError struct{ Issues []string }
 
 func (e *BlockedError) Error() string {
-	return "catalog: model cannot be created: " + strings.Join(e.Issues, "; ")
+	return "catalog: not possible as asked: " + strings.Join(e.Issues, "; ")
 }
 
 // SKUPrefix starts every own article number (docs/decisions/0023).
@@ -199,6 +202,31 @@ func CreateFromAction(ctx context.Context, q *db.Queries, actionID int64, modelK
 		}
 	}
 	return nil
+}
+
+// ShiftVariantPrice changes a variant's sales price by delta cents and
+// records the change. origin is "user" or "rule"; actor may be empty for
+// rules. It fails with a BlockedError when the variant has no price or the
+// result would not be positive.
+func ShiftVariantPrice(ctx context.Context, q *db.Queries, variantID, delta int64, origin string, actionID int64, actor, reason string) error {
+	if delta == 0 {
+		return nil
+	}
+	price, err := q.ShiftVariantPrice(ctx, db.ShiftVariantPriceParams{ID: variantID, DeltaCents: delta})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &BlockedError{Issues: []string{"Die Variante hat keinen Verkaufspreis, der sich um diesen Betrag ändern lässt"}}
+	}
+	if err != nil {
+		return err
+	}
+	oldValue, newValue := strconv.FormatInt(*price-delta, 10), strconv.FormatInt(*price, 10)
+	params := db.InsertCatalogFieldChangeParams{
+		EntityType: "variant", EntityID: variantID, Field: "price_cents", OldValue: &oldValue, NewValue: &newValue,
+		Origin: origin, ActionID: &actionID, Reason: &reason}
+	if actor != "" {
+		params.Actor = &actor
+	}
+	return q.InsertCatalogFieldChange(ctx, params)
 }
 
 func ptr[T any](v T) *T { return &v }

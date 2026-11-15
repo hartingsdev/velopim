@@ -54,6 +54,10 @@ type TaskAction struct {
 	New    string  `json:"new"`
 	Reason string  `json:"reason"`
 	Rule   *string `json:"rule"`
+	// For a purchase price change: the own sales price now and what
+	// approving sets it to. Null when the article has no priced variant.
+	BasePriceCents     *int64 `json:"base_price_cents"`
+	ProposedPriceCents *int64 `json:"proposed_price_cents"`
 }
 
 // TaskItem is the supplier item a task is about.
@@ -175,7 +179,8 @@ func taskFromRow(row db.ListOpenTasksRow) Task {
 	}
 	if row.ActionType != nil {
 		t.Action = &TaskAction{Type: *row.ActionType, Field: str(row.ActionField), Old: str(row.OldValue),
-			New: str(row.NewValue), Reason: str(row.DecisionReason), Rule: row.RuleName}
+			New: str(row.NewValue), Reason: str(row.DecisionReason), Rule: row.RuleName,
+			BasePriceCents: row.BasePriceCents, ProposedPriceCents: row.ProposedPriceCents}
 	}
 	if row.Sku != nil {
 		t.Item = &TaskItem{SourceID: str(row.SourceID), SKU: *row.Sku, Brand: str(row.Brand), Name: str(row.ItemName),

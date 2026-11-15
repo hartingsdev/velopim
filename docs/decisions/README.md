@@ -21,7 +21,7 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 15 | [Import anhalten, wenn mehr als 20 % der Artikel fehlen](0015-hold-import-on-drop.md) | Angenommen |
 | 16 | [Eine neuere offene Aktion ersetzt die ältere](0016-supersede-pending-actions.md) | Angenommen |
 | 17 | [Datenprobleme eines Imports ergeben einen Sammel-Task](0017-collective-data-issue-task.md) | Angenommen |
-| 18 | [Preisänderungen immer zur Freigabe, Senkungen betragsgleich](0018-price-changes-need-approval.md) | Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt |
+| 18 | [Preisänderungen immer zur Freigabe, Senkungen betragsgleich](0018-price-changes-need-approval.md) | Angenommen (Vorgabe des Betreibers), umgesetzt |
 | 19 | [API-Typen von Hand gepflegt](0019-handwritten-api-types.md) | Vorläufig, ohne Betreiber entschieden |
 | 20 | [Kein Login, nur localhost](0020-no-login-localhost.md) | Vorläufig, ohne Betreiber entschieden |
 | 21 | [Produktschnitt je Modell einstellbar](0021-configurable-product-split.md) | Angenommen (Vorgabe des Betreibers), umgesetzt |
@@ -29,4 +29,4 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 23 | [Eigene Artikelnummern für Varianten](0023-own-skus.md) | Angenommen (Vorgabe des Betreibers); Format vorläufig |
 | 24 | [Kalkulation in der Oberfläche pflegen, Preise im Freigabe-Task zeigen](0024-pricing-config-in-ui.md) | Angenommen (Vorgabe des Betreibers) |
 | 25 | [Neue Produkte gehen als Entwurf zu Shopify, Veröffentlichen ist ein Task](0025-publish-task.md) | Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt |
-| 26 | [Regeln entscheiden, ob Preise dem Einkaufspreis folgen](0026-price-follow-rules.md) | Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt |
+| 26 | [Regeln entscheiden, ob Preise dem Einkaufspreis folgen](0026-price-follow-rules.md) | Angenommen (Vorgabe des Betreibers), Regel-Engine umgesetzt |

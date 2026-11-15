@@ -153,3 +153,104 @@ func TestBlockedModelStaysOpen(t *testing.T) {
 		t.Errorf("rejected model created %s products", n)
 	}
 }
+
+func TestCostChangeMovesTheSalesPriceByTheSameAmount(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO pricing_rule (config) VALUES ('{"mode": "markup", "value": 1.5, "vat_pct": 19}');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	row := func(sku, size, cost string) string {
+		return sku + ";;Beispielrad;Trekking 5.4;2027;schwarz;" + size + ";" + cost + ";1.999,00;4"
+	}
+	// Two variants, both created at 1000 € × 1.5 × 1.19 = 1785 €.
+	runImport(t, pool, row("100-001", "52", "1.000,00"), row("100-002", "56", "1.000,00"))
+	if err := tasks.Decide(ctx, pool, openModelTask(t, pool, "Beispielrad Trekking 5.4 (2027)"), true, "robert", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	price := func(supplierSKU string) string {
+		return query(t, pool, `SELECT v.price_cents::text FROM variant v JOIN variant_supplier_item vs ON vs.variant_id = v.id
+			JOIN supplier_item s ON s.id = vs.supplier_item_id WHERE s.sku = $1`, supplierSKU)
+	}
+	priceTask := func(supplierSKU string) (id int64, proposal string) {
+		t.Helper()
+		err := pool.QueryRow(ctx, `SELECT t.id, a.old_value || '>' || a.new_value || ' ' || a.base_price_cents || '>' || a.proposed_price_cents
+			FROM task t JOIN action a ON a.id = t.action_id JOIN supplier_item s ON s.id = a.supplier_item_id
+			WHERE a.field = 'cost_cents' AND t.status = 'open' AND s.sku = $1`, supplierSKU).Scan(&id, &proposal)
+		if err != nil {
+			t.Fatalf("open price task for %s: %v", supplierSKU, err)
+		}
+		return id, proposal
+	}
+
+	// The supplier lowers the purchase price by 5 €: the proposal lowers the
+	// sales price by 5 €, not by the markup on 5 €. Nothing changes yet.
+	runImport(t, pool, row("100-001", "52", "995,00"), row("100-002", "56", "1.000,00"))
+	if _, proposal := priceTask("100-001"); proposal != "100000>99500 178500>178000" {
+		t.Errorf("proposal = %s", proposal)
+	}
+	if p := price("100-001"); p != "178500" {
+		t.Errorf("price changed before approval: %s", p)
+	}
+
+	// A second change before the decision replaces the task and covers both
+	// steps: 1000 € → 980 €, so 20 € off.
+	runImport(t, pool, row("100-001", "52", "980,00"), row("100-002", "56", "1.000,00"))
+	taskID, proposal := priceTask("100-001")
+	if proposal != "100000>98000 178500>176500" {
+		t.Errorf("carried-over proposal = %s", proposal)
+	}
+	if err := tasks.Decide(ctx, pool, taskID, true, "robert", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := price("100-001"); p != "176500" {
+		t.Errorf("price after approval = %s, want 176500", p)
+	}
+	if p := price("100-002"); p != "178500" {
+		t.Errorf("other variant changed: %s", p)
+	}
+	got := query(t, pool, `SELECT old_value || '>' || new_value || ' ' || origin || ' ' || actor FROM field_change
+		WHERE entity_type = 'variant' AND field = 'price_cents' AND old_value IS NOT NULL`)
+	if got != "178500>176500 user robert" {
+		t.Errorf("field change = %s", got)
+	}
+
+	// An increase is proposed the same way; rejecting it leaves the price.
+	runImport(t, pool, row("100-001", "52", "1.030,00"), row("100-002", "56", "1.000,00"))
+	taskID, proposal = priceTask("100-001")
+	if proposal != "98000>103000 176500>181500" {
+		t.Errorf("increase proposal = %s", proposal)
+	}
+	if err := tasks.Decide(ctx, pool, taskID, false, "robert", "Lagerware", nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := price("100-001"); p != "176500" {
+		t.Errorf("price after rejection = %s", p)
+	}
+
+	// With a rule, decreases are passed on automatically and increases
+	// still need approval.
+	if _, err := pool.Exec(ctx, `INSERT INTO rule (name, action_type, scope_source_id, conditions, outcome) VALUES
+		('pass on decreases', 'price_change', 'example', '[{"fact": "cost_change_cents", "op": "lt", "value": 0}]', 'auto')`); err != nil {
+		t.Fatal(err)
+	}
+	runImport(t, pool, row("100-001", "52", "1.030,00"), row("100-002", "56", "990,00"))
+	if p := price("100-002"); p != "177500" {
+		t.Errorf("automatic decrease: price = %s, want 177500", p)
+	}
+	got = query(t, pool, `SELECT fc.origin || ' ' || a.status || ' ' || r.name FROM field_change fc
+		JOIN action a ON a.id = fc.action_id JOIN rule r ON r.id = a.rule_id WHERE fc.origin = 'rule'`)
+	if got != "rule auto_applied pass on decreases" {
+		t.Errorf("automatic change: %s", got)
+	}
+	runImport(t, pool, row("100-001", "52", "1.030,00"), row("100-002", "56", "1.010,00"))
+	if _, proposal := priceTask("100-002"); proposal != "99000>101000 177500>179500" {
+		t.Errorf("increase with the rule in place: %s", proposal)
+	}
+	if p := price("100-002"); p != "177500" {
+		t.Errorf("increase was applied without approval: %s", p)
+	}
+}

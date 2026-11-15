@@ -1,6 +1,6 @@
 # 18. Preisänderungen immer zur Freigabe, Senkungen betragsgleich
 
-**Status:** Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt. Ergänzt durch [26](0026-price-follow-rules.md): Regeln dürfen die Übernahme automatisch machen.
+**Status:** Angenommen (Vorgabe des Betreibers), umgesetzt. Ergänzt durch [26](0026-price-follow-rules.md): Regeln dürfen die Übernahme automatisch machen.
 
 ## Kontext
 Vorgabe des Betreibers: Preise dürfen nie automatisch geändert werden. Senkt Hartje den Preis um 5 €, soll der eigene Preis auch um 5 € sinken. Auf Nachfrage: gemeint ist der Einkaufspreis; vorerst nur als Vorschlag, später sollen Vorschlag und automatische Übernahme möglich sein.
@@ -13,4 +13,6 @@ Für `price_change` werden keine `auto`-Regeln angelegt, jede Preisänderung wir
 - **Automatische Übernahme:** vorerst ausgeschlossen, soll später je Regel zuschaltbar sein.
 
 ## Folgen
-Der EK ist netto, der Verkaufspreis brutto: 5 € weniger Ladenpreis geben netto nur 4,20 € weiter. Vorerst wird der Betrag eins zu eins vom Ladenpreis abgezogen. Offen: Verhalten bei EK-Erhöhungen. Umsetzung erst mit dem eigenen Katalog, vorher gibt es keinen Verkaufspreis.
+Der EK ist netto, der Verkaufspreis brutto: 5 € weniger Ladenpreis geben netto nur 4,20 € weiter. Vorerst wird der Betrag eins zu eins vom Ladenpreis abgezogen. Erhöhungen werden genauso vorgeschlagen wie Senkungen.
+
+Umsetzung: Der Vorschlag steht an der Aktion (`base_price_cents`, `proposed_price_cents`). Eine noch nicht entschiedene frühere Änderung wird mitgenommen, der Vorschlag deckt also alles seit der letzten Entscheidung ab. Wird eine Änderung abgelehnt, bleibt der Verkaufspreis dauerhaft um diesen Betrag vom Lieferanten entkoppelt. Gibt es zum Artikel keine Variante mit Verkaufspreis, ändert die Freigabe nichts. Änderungen der UVP werden nur protokolliert.

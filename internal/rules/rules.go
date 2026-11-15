@@ -39,6 +39,9 @@ const (
 	// MarginPct is the margin of the new net sales price over the purchase
 	// price, in percent of the net sales price.
 	MarginPct Fact = "margin_pct"
+	// CostChangeCents is the signed change of the supplier's purchase price
+	// in cents; negative when the supplier got cheaper.
+	CostChangeCents Fact = "cost_change_cents"
 )
 
 // Op is a comparison operator.

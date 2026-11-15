@@ -9,24 +9,26 @@ import (
 )
 
 type Action struct {
-	ID             int64
-	Type           string
-	Status         string
-	SupplierItemID *int64
-	ProductID      *int64
-	VariantID      *int64
-	Field          string
-	OldValue       *string
-	NewValue       *string
-	Facts          []byte
-	RuleID         *int64
-	DecisionReason string
-	ImportRunID    *int64
-	CreatedAt      time.Time
-	DecidedAt      *time.Time
-	DecidedBy      *string
-	DecisionNote   *string
-	ModelKey       string
+	ID                 int64
+	Type               string
+	Status             string
+	SupplierItemID     *int64
+	ProductID          *int64
+	VariantID          *int64
+	Field              string
+	OldValue           *string
+	NewValue           *string
+	Facts              []byte
+	RuleID             *int64
+	DecisionReason     string
+	ImportRunID        *int64
+	CreatedAt          time.Time
+	DecidedAt          *time.Time
+	DecidedBy          *string
+	DecisionNote       *string
+	ModelKey           string
+	BasePriceCents     *int64
+	ProposedPriceCents *int64
 }
 
 type ActionItem struct {

@@ -8,6 +8,9 @@ export interface TaskAction {
   new: string;
   reason: string;
   rule: string | null;
+  /** For a purchase price change: own sales price now and after approval. */
+  base_price_cents: number | null;
+  proposed_price_cents: number | null;
 }
 
 export interface TaskItem {

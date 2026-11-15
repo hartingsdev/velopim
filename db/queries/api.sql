@@ -1,7 +1,7 @@
 -- name: ListOpenTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t
@@ -15,7 +15,7 @@ LIMIT $1;
 -- name: ListClosedTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t

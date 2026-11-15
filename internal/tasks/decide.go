@@ -23,7 +23,9 @@ var ErrNotOpen = errors.New("tasks: task is not open")
 //
 // Approving a new-model action creates its products and variants; splitBy
 // says which axes separate products (docs/decisions/0021) and is ignored for
-// other tasks. A *catalog.BlockedError means the cut is not possible and
+// other tasks. Approving a purchase price change with a price proposal
+// changes the variant's sales price by the proposed amount. A
+// *catalog.BlockedError means the approval is not possible as asked and
 // nothing was changed.
 func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, approve bool, actor, note string, splitBy []catalog.Axis) error {
 	if actor == "" {
@@ -55,6 +57,14 @@ func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, approve bool,
 		}
 		if err != nil {
 			return err
+		}
+		if approve && action.Type == "price_change" && action.VariantID != nil &&
+			action.BasePriceCents != nil && action.ProposedPriceCents != nil {
+			delta := *action.ProposedPriceCents - *action.BasePriceCents
+			if err := catalog.ShiftVariantPrice(ctx, q, *action.VariantID, delta, "user", *actionID, actor,
+				"Preisänderung freigegeben"); err != nil {
+				return err
+			}
 		}
 		if approve && action.Type == "new_product" && action.ModelKey != "" {
 			if err := catalog.CreateFromAction(ctx, q, *actionID, action.ModelKey, splitBy, actor); err != nil {

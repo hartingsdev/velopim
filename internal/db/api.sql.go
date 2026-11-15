@@ -110,7 +110,7 @@ func (q *Queries) ListActionItems(ctx context.Context, actionIds []int64) ([]Lis
 const listClosedTasks = `-- name: ListClosedTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t
@@ -123,32 +123,34 @@ LIMIT $1
 `
 
 type ListClosedTasksRow struct {
-	ID             int64
-	Kind           string
-	Title          string
-	Detail         string
-	Status         string
-	Priority       int16
-	CreatedAt      time.Time
-	ClosedAt       *time.Time
-	ClosedBy       *string
-	Note           *string
-	ImportRunID    *int64
-	ActionID       *int64
-	ActionType     *string
-	ActionField    *string
-	OldValue       *string
-	NewValue       *string
-	DecisionReason *string
-	ModelKey       *string
-	RuleName       *string
-	SourceID       *string
-	Sku            *string
-	Brand          *string
-	ItemName       *string
-	ModelYear      *int32
-	Color          *string
-	FrameSize      *string
+	ID                 int64
+	Kind               string
+	Title              string
+	Detail             string
+	Status             string
+	Priority           int16
+	CreatedAt          time.Time
+	ClosedAt           *time.Time
+	ClosedBy           *string
+	Note               *string
+	ImportRunID        *int64
+	ActionID           *int64
+	ActionType         *string
+	ActionField        *string
+	OldValue           *string
+	NewValue           *string
+	DecisionReason     *string
+	ModelKey           *string
+	BasePriceCents     *int64
+	ProposedPriceCents *int64
+	RuleName           *string
+	SourceID           *string
+	Sku                *string
+	Brand              *string
+	ItemName           *string
+	ModelYear          *int32
+	Color              *string
+	FrameSize          *string
 }
 
 func (q *Queries) ListClosedTasks(ctx context.Context, limit int32) ([]ListClosedTasksRow, error) {
@@ -179,6 +181,8 @@ func (q *Queries) ListClosedTasks(ctx context.Context, limit int32) ([]ListClose
 			&i.NewValue,
 			&i.DecisionReason,
 			&i.ModelKey,
+			&i.BasePriceCents,
+			&i.ProposedPriceCents,
 			&i.RuleName,
 			&i.SourceID,
 			&i.Sku,
@@ -253,7 +257,7 @@ func (q *Queries) ListImportRuns(ctx context.Context, limit int32) ([]ListImport
 const listOpenTasks = `-- name: ListOpenTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t
@@ -266,32 +270,34 @@ LIMIT $1
 `
 
 type ListOpenTasksRow struct {
-	ID             int64
-	Kind           string
-	Title          string
-	Detail         string
-	Status         string
-	Priority       int16
-	CreatedAt      time.Time
-	ClosedAt       *time.Time
-	ClosedBy       *string
-	Note           *string
-	ImportRunID    *int64
-	ActionID       *int64
-	ActionType     *string
-	ActionField    *string
-	OldValue       *string
-	NewValue       *string
-	DecisionReason *string
-	ModelKey       *string
-	RuleName       *string
-	SourceID       *string
-	Sku            *string
-	Brand          *string
-	ItemName       *string
-	ModelYear      *int32
-	Color          *string
-	FrameSize      *string
+	ID                 int64
+	Kind               string
+	Title              string
+	Detail             string
+	Status             string
+	Priority           int16
+	CreatedAt          time.Time
+	ClosedAt           *time.Time
+	ClosedBy           *string
+	Note               *string
+	ImportRunID        *int64
+	ActionID           *int64
+	ActionType         *string
+	ActionField        *string
+	OldValue           *string
+	NewValue           *string
+	DecisionReason     *string
+	ModelKey           *string
+	BasePriceCents     *int64
+	ProposedPriceCents *int64
+	RuleName           *string
+	SourceID           *string
+	Sku                *string
+	Brand              *string
+	ItemName           *string
+	ModelYear          *int32
+	Color              *string
+	FrameSize          *string
 }
 
 func (q *Queries) ListOpenTasks(ctx context.Context, limit int32) ([]ListOpenTasksRow, error) {
@@ -322,6 +328,8 @@ func (q *Queries) ListOpenTasks(ctx context.Context, limit int32) ([]ListOpenTas
 			&i.NewValue,
 			&i.DecisionReason,
 			&i.ModelKey,
+			&i.BasePriceCents,
+			&i.ProposedPriceCents,
 			&i.RuleName,
 			&i.SourceID,
 			&i.Sku,

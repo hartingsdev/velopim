@@ -13,6 +13,7 @@
 | Gruppierung zu Produkten mit Trennmerkmalen | `catalog` |
 | Eigener Katalog: Freigabe eines Modells legt Produkte (Entwurf) und Varianten mit eigener Artikelnummer und kalkuliertem Preis an | `catalog`, `tasks` |
 | Shopify-Projektion und Diff | `shopify` |
+| Betragsgleiche Preisänderung: EK-Änderung schlägt denselben Betrag beim Verkaufspreis vor; Freigabe oder Regel ändert den Preis | `importer`, `tasks`, `catalog` |
 | HTTP-API für Tasks, Importläufe, Produkte und Kalkulationsregeln | `api` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
 | Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale; erledigte Aufgaben; Produktliste; Importläufe; Kalkulationsregeln | `web` |
@@ -20,14 +21,13 @@
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
-- Übernahme freigegebener Änderungen in den Katalog: Preis, Verfügbarkeit, Texte, Bilder, Deaktivierung (bisher legt nur die Freigabe eines neuen Modells etwas an)
-- Betragsgleiche Preisänderung als Vorschlag und Regeln dafür ([26](decisions/0026-price-follow-rules.md))
+- Übernahme freigegebener Änderungen in den Katalog: Verfügbarkeit, Texte, Bilder, UVP, Deaktivierung (bisher wirken nur neue Modelle und EK-Änderungen)
 - Auswahl „in den Store“ und Bearbeiten von Produkten (Preis, Texte, Trennmerkmale ändern)
 - Veröffentlichen-Task ([25](decisions/0025-publish-task.md))
 - Nutzungsrichtlinie in der Pipeline
 - Shopify-API-Client mit Dry-Run
 - Produktansicht mit Feldherkunft und internen Notizen (die Produktliste zeigt bisher nur Varianten und Preise)
-- Pflege von Regeln und Quellen in der Oberfläche
+- Pflege von Regeln und Quellen in der Oberfläche (Regeln stehen bisher nur in der Datenbank)
 - River-Jobs
 - Hartje-Konnektor (Format unbekannt)
 
@@ -35,4 +35,4 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 Hartje-Konnektor über Dateiimport mit Rohdatenablage · Normalisierung und Variantengruppierung · Nutzungsrichtlinie · Preiskalkulation · Regel-Engine (Neuprodukt, Preis, Statuswechsel Verfügbarkeit) · Taskliste mit Freigabe und Ablehnung · Produktansicht mit Feldherkunft und internen Notizen · Auswahl „in den Store“ · Shopify-Sync (Produkt, Varianten, Preise, Bilder, Lieferzeit-Metafeld) im Dry-Run und gegen den Development-Store.
 
 ## Später
-Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand · Drift-Erkennung · zweiter Lieferant · Task-Adapter (Todoist usw.) · Benachrichtigungen · weitere Kalkulationsverfahren („UVP übernehmen“) · automatische Preisübernahme je Regel.
+Anmeldung über OIDC und Zuweisung von Aufgaben an Gruppen (z. B. Importprobleme an den Betreiber, Preisänderungen an den Einkauf) · Matching der Bestandsprodukte · Aktionen mit Zeitraum · Eigenbestand · Drift-Erkennung · zweiter Lieferant · Task-Adapter (Todoist usw.) · Benachrichtigungen · weitere Kalkulationsverfahren („UVP übernehmen“) · automatische Preisübernahme je Regel.

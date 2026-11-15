@@ -23,8 +23,8 @@ func seed(t *testing.T, pool *pgxpool.Pool) (approvalTask, plainTask int64) {
 		INSERT INTO import_run (source_id, status, record_count) VALUES ('example', 'done', 1);
 		INSERT INTO supplier_item (source_id, sku, brand, name, model_year) VALUES ('example', '100-001', 'Beispielrad', 'Trekking 5.4', 2027);
 		INSERT INTO rule (name, action_type, outcome) VALUES ('prices need approval', 'price_change', 'approval');
-		INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, rule_id, decision_reason)
-		  VALUES ('price_change', 'pending_approval', 1, 'cost_cents', '100000', '95000', 1, 'most specific rule matched');
+		INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, rule_id, decision_reason, base_price_cents, proposed_price_cents)
+		  VALUES ('price_change', 'pending_approval', 1, 'cost_cents', '100000', '95000', 1, 'most specific rule matched', 178500, 173500);
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,8 @@ func TestTaskListAndDecision(t *testing.T) {
 		t.Fatalf("first task: %+v", first)
 	}
 	if a := first.Action; a.Type != "price_change" || a.Field != "cost_cents" || a.Old != "100000" || a.New != "95000" ||
-		a.Rule == nil || *a.Rule != "prices need approval" {
+		a.Rule == nil || *a.Rule != "prices need approval" || a.ProposedPriceCents == nil || *a.ProposedPriceCents != 173500 ||
+		a.BasePriceCents == nil || *a.BasePriceCents != 178500 {
 		t.Errorf("action: %+v", a)
 	}
 	if it := first.Item; it.SKU != "100-001" || it.Brand != "Beispielrad" || it.ModelYear == nil || *it.ModelYear != 2027 {

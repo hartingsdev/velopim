@@ -22,6 +22,24 @@ func (q *Queries) DeletePricingRule(ctx context.Context, id int64) (int64, error
 	return result.RowsAffected(), nil
 }
 
+const getPricedVariantOfSupplierItem = `-- name: GetPricedVariantOfSupplierItem :one
+SELECT v.id, v.price_cents FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+WHERE vs.supplier_item_id = $1 AND v.price_cents IS NOT NULL
+`
+
+type GetPricedVariantOfSupplierItemRow struct {
+	ID         int64
+	PriceCents *int64
+}
+
+func (q *Queries) GetPricedVariantOfSupplierItem(ctx context.Context, supplierItemID int64) (GetPricedVariantOfSupplierItemRow, error) {
+	row := q.db.QueryRow(ctx, getPricedVariantOfSupplierItem, supplierItemID)
+	var i GetPricedVariantOfSupplierItemRow
+	err := row.Scan(&i.ID, &i.PriceCents)
+	return i, err
+}
+
 const insertCatalogFieldChange = `-- name: InsertCatalogFieldChange :exec
 INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, origin, action_id, actor, reason)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -401,6 +419,29 @@ func (q *Queries) NextVariantNumber(ctx context.Context) (int64, error) {
 	var nextval int64
 	err := row.Scan(&nextval)
 	return nextval, err
+}
+
+const shiftVariantPrice = `-- name: ShiftVariantPrice :one
+UPDATE variant SET
+    price_cents = price_cents + $2::bigint,
+    compare_at_cents = CASE WHEN compare_at_cents <= price_cents + $2::bigint THEN NULL ELSE compare_at_cents END,
+    updated_at = now()
+WHERE id = $1 AND price_cents IS NOT NULL AND price_cents + $2::bigint > 0
+RETURNING price_cents
+`
+
+type ShiftVariantPriceParams struct {
+	ID         int64
+	DeltaCents int64
+}
+
+// Changes the sales price by an amount. The compare-at price is dropped once
+// the sales price reaches it.
+func (q *Queries) ShiftVariantPrice(ctx context.Context, arg ShiftVariantPriceParams) (*int64, error) {
+	row := q.db.QueryRow(ctx, shiftVariantPrice, arg.ID, arg.DeltaCents)
+	var price_cents *int64
+	err := row.Scan(&price_cents)
+	return price_cents, err
 }
 
 const supplierItemHasVariant = `-- name: SupplierItemHasVariant :one

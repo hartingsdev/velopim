@@ -407,28 +407,59 @@ func (s *runState) upsert(rec connector.RawRecord, item connector.SupplierItem, 
 // A pending action gets a task; an older pending action for the same field
 // is superseded so that tasks do not pile up.
 func (s *runState) decide(p actions.Proposal, itemID int64, item connector.SupplierItem, prev *connector.SupplierItem) error {
-	facts := map[rules.Fact]float64{}
-	if p.Type == rules.PriceChange && prev != nil {
-		facts = s.priceFacts(*prev, item)
-	}
-	d := rules.Evaluate(s.rules, rules.Action{
-		Type: p.Type, SourceID: s.sourceID, Brand: item.Brand, Category: item.Category, Facts: facts})
-
 	superseded, err := s.q.SupersedePendingActions(s.ctx, db.SupersedePendingActionsParams{
 		SupplierItemID: &itemID, Type: string(p.Type), Field: p.Field})
 	if err != nil {
 		return err
 	}
 	if len(superseded) > 0 {
-		if err := s.q.DismissTasksOfActions(s.ctx, superseded); err != nil {
+		ids := make([]int64, len(superseded))
+		for i, sup := range superseded {
+			ids[i] = sup.ID
+		}
+		if err := s.q.DismissTasksOfActions(s.ctx, ids); err != nil {
 			return err
 		}
 	}
+
+	facts := map[rules.Fact]float64{}
+	if p.Type == rules.PriceChange && prev != nil {
+		facts = s.priceFacts(*prev, item)
+	}
+	// A changed purchase price proposes the same amount on the own sales
+	// price (docs/decisions/0018). An undecided earlier change is carried
+	// over, so the proposal covers everything since the last decision.
+	var variantID, basePrice, proposedPrice *int64
+	if p.Type == rules.PriceChange && p.Field == "cost_cents" && prev != nil {
+		delta := item.CostCents - prev.CostCents
+		for _, sup := range superseded {
+			if sup.BasePriceCents != nil && sup.ProposedPriceCents != nil {
+				delta += *sup.ProposedPriceCents - *sup.BasePriceCents
+				if sup.OldValue != nil {
+					p.Old = *sup.OldValue
+				}
+			}
+		}
+		facts[rules.CostChangeCents] = float64(delta)
+		if prev.CostCents > 0 && item.CostCents > 0 {
+			v, err := s.q.GetPricedVariantOfSupplierItem(s.ctx, itemID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err == nil && *v.PriceCents+delta > 0 {
+				proposed := *v.PriceCents + delta
+				variantID, basePrice, proposedPrice = &v.ID, v.PriceCents, &proposed
+			}
+		}
+	}
+	d := rules.Evaluate(s.rules, rules.Action{
+		Type: p.Type, SourceID: s.sourceID, Brand: item.Brand, Category: item.Category, Facts: facts})
 
 	factsJSON, _ := json.Marshal(facts)
 	params := db.InsertActionParams{
 		Type: string(p.Type), Status: "pending_approval", SupplierItemID: &itemID, Field: p.Field,
 		OldValue: &p.Old, NewValue: &p.New, Facts: factsJSON, DecisionReason: d.Reason, ImportRunID: &s.runID,
+		VariantID: variantID, BasePriceCents: basePrice, ProposedPriceCents: proposedPrice,
 	}
 	if d.RuleID != 0 {
 		params.RuleID = &d.RuleID
@@ -443,6 +474,10 @@ func (s *runState) decide(p actions.Proposal, itemID int64, item connector.Suppl
 	}
 	if d.Outcome == rules.Auto {
 		s.res.AutoApplied++
+		if proposedPrice != nil {
+			return catalog.ShiftVariantPrice(s.ctx, s.q, *variantID, *proposedPrice-*basePrice, "rule", actionID, "",
+				"Einkaufspreis des Lieferanten geändert")
+		}
 		return nil
 	}
 	s.res.PendingApproval++

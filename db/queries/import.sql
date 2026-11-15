@@ -50,7 +50,7 @@ VALUES ('supplier_item', $1, $2, $3, $4, 'import', $5);
 -- name: SupersedePendingActions :many
 UPDATE action SET status = 'superseded', decided_at = now(), decided_by = 'system'
 WHERE supplier_item_id = $1 AND type = $2 AND field = $3 AND status = 'pending_approval'
-RETURNING id;
+RETURNING id, old_value, base_price_cents, proposed_price_cents;
 
 -- name: DismissTasksOfActions :exec
 UPDATE task SET status = 'dismissed', closed_at = now(), closed_by = 'system', note = 'Durch neuere Änderung ersetzt'
@@ -58,8 +58,9 @@ WHERE action_id = ANY(sqlc.arg(action_ids)::bigint[]) AND status = 'open';
 
 -- name: InsertAction :one
 INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, facts, rule_id,
-    decision_reason, import_run_id, decided_at, decided_by, model_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    decision_reason, import_run_id, decided_at, decided_by, model_key, variant_id, base_price_cents,
+    proposed_price_cents)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id;
 
 -- name: InsertTask :exec

@@ -171,6 +171,18 @@ function Change({ action }: { action: NonNullable<Task["action"]> }) {
           {delta && <span className="delta">{delta}</span>}
         </p>
       )}
+      {action.base_price_cents !== null && action.proposed_price_cents !== null && (
+        <p className="values">
+          <span className="field">Dein Verkaufspreis bei Freigabe</span>
+          <span className="old">{formatPrice(action.base_price_cents)}</span>
+          <span aria-label="wird zu">→</span>
+          <span className="new">{formatPrice(action.proposed_price_cents)}</span>
+          <span className="delta">{priceDelta(String(action.base_price_cents), String(action.proposed_price_cents))}</span>
+        </p>
+      )}
+      {action.field === "cost_cents" && action.proposed_price_cents === null && (
+        <p className="hint">Kein Produkt mit Verkaufspreis zu diesem Artikel: Die Freigabe ändert keinen Preis.</p>
+      )}
       <p className="reason">
         {reasonLabel(action.reason)}
         {action.rule && <> (Regel: {action.rule})</>}

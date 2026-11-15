@@ -60,3 +60,18 @@ DELETE FROM pricing_rule WHERE id = $1;
 
 -- name: ListModelSplits :many
 SELECT DISTINCT model_key, split_by FROM product WHERE model_key = ANY(sqlc.arg(model_keys)::text[]);
+
+-- name: GetPricedVariantOfSupplierItem :one
+SELECT v.id, v.price_cents FROM variant v
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+WHERE vs.supplier_item_id = $1 AND v.price_cents IS NOT NULL;
+
+-- name: ShiftVariantPrice :one
+-- Changes the sales price by an amount. The compare-at price is dropped once
+-- the sales price reaches it.
+UPDATE variant SET
+    price_cents = price_cents + sqlc.arg(delta_cents)::bigint,
+    compare_at_cents = CASE WHEN compare_at_cents <= price_cents + sqlc.arg(delta_cents)::bigint THEN NULL ELSE compare_at_cents END,
+    updated_at = now()
+WHERE id = $1 AND price_cents IS NOT NULL AND price_cents + sqlc.arg(delta_cents)::bigint > 0
+RETURNING price_cents;
