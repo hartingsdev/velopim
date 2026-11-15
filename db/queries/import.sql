@@ -86,3 +86,31 @@ SELECT EXISTS (
     SELECT 1 FROM action
     WHERE type = 'new_product' AND model_key = $1 AND status IN ('approved', 'auto_applied')
 );
+
+-- name: GetImportRun :one
+SELECT id, source_id, status, file_path FROM import_run WHERE id = $1;
+
+-- name: LatestImportRunID :one
+SELECT id FROM import_run WHERE source_id = $1 ORDER BY id DESC LIMIT 1;
+
+-- name: CloseImportHeldTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = $2, note = 'Fehlende Artikel deaktiviert'
+WHERE import_run_id = $1 AND kind = 'import_held' AND status = 'open';
+
+-- name: GetPreviousRunIssues :one
+-- Data issues of the source's last finished run.
+SELECT coalesce(summary->'issues', '[]'::jsonb)::jsonb AS issues
+FROM import_run WHERE source_id = $1 AND status IN ('done', 'held')
+ORDER BY id DESC LIMIT 1;
+
+-- name: DismissOpenImportTasks :exec
+-- A newer import replaces the open tasks of that kind about earlier runs.
+UPDATE task t SET status = 'dismissed', closed_at = now(), closed_by = 'system', note = 'Durch neueren Import ersetzt'
+FROM import_run r
+WHERE r.id = t.import_run_id AND r.source_id = sqlc.arg(source_id)::text AND t.kind = sqlc.arg(kind)::text AND t.status = 'open';
+
+-- name: HasOpenImportTask :one
+SELECT EXISTS (
+    SELECT 1 FROM task t JOIN import_run r ON r.id = t.import_run_id
+    WHERE r.source_id = sqlc.arg(source_id)::text AND t.kind = sqlc.arg(kind)::text AND t.status = 'open'
+)::bool AS open;

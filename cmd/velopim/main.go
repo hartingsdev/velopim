@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -20,12 +19,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"velopim/internal/api"
-	"velopim/internal/connector"
-	"velopim/internal/connector/csvfile"
 	"velopim/internal/db"
 	"velopim/internal/importer"
 	"velopim/internal/shopify"
@@ -72,6 +68,11 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// rawDir is where original supplier files are kept.
+func rawDir() string {
+	return filepath.Join(env("VELOPIM_DATA_DIR", "data"), "raw")
+}
+
 func openDB(ctx context.Context) (*pgxpool.Pool, error) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -106,7 +107,7 @@ func serve(ctx context.Context) error {
 		}
 		store = client
 	}
-	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store))
+	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, api.WithRawDir(rawDir())))
 	mux.Handle("/", web.Handler())
 
 	// There is no login: keep the default on localhost.
@@ -194,7 +195,7 @@ func runImport(ctx context.Context, sourceID, path string) error {
 	}
 	defer pool.Close()
 
-	conn, err := loadConnector(ctx, pool, sourceID)
+	conn, err := importer.ConnectorFor(ctx, db.New(pool), sourceID)
 	if err != nil {
 		return err
 	}
@@ -205,7 +206,7 @@ func runImport(ctx context.Context, sourceID, path string) error {
 	defer f.Close()
 
 	res, err := importer.Run(ctx, pool, conn, f, importer.Options{
-		RawDir: filepath.Join(env("VELOPIM_DATA_DIR", "data"), "raw")})
+		RawDir: rawDir()})
 	if err != nil {
 		return err
 	}
@@ -214,25 +215,4 @@ func runImport(ctx context.Context, sourceID, path string) error {
 	fmt.Printf("%d automatisch übernommen, %d zur Freigabe, %d Datenprobleme\n",
 		res.AutoApplied, res.PendingApproval, res.Issues)
 	return nil
-}
-
-// loadConnector builds the connector a source is configured with.
-func loadConnector(ctx context.Context, pool *pgxpool.Pool, sourceID string) (connector.Connector, error) {
-	src, err := db.New(pool).GetSource(ctx, sourceID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("source %q is not configured", sourceID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	switch src.ConnectorKind {
-	case "csvfile":
-		var cfg csvfile.Config
-		if err := json.Unmarshal(src.ConnectorConfig, &cfg); err != nil {
-			return nil, fmt.Errorf("connector config of %q: %w", sourceID, err)
-		}
-		cfg.SourceID = src.ID
-		return csvfile.New(cfg)
-	}
-	return nil, fmt.Errorf("source %q: unknown connector kind %q", sourceID, src.ConnectorKind)
 }

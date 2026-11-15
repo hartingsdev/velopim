@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+const closeImportHeldTasks = `-- name: CloseImportHeldTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = $2, note = 'Fehlende Artikel deaktiviert'
+WHERE import_run_id = $1 AND kind = 'import_held' AND status = 'open'
+`
+
+type CloseImportHeldTasksParams struct {
+	ImportRunID *int64
+	ClosedBy    *string
+}
+
+func (q *Queries) CloseImportHeldTasks(ctx context.Context, arg CloseImportHeldTasksParams) error {
+	_, err := q.db.Exec(ctx, closeImportHeldTasks, arg.ImportRunID, arg.ClosedBy)
+	return err
+}
+
 const createImportRun = `-- name: CreateImportRun :one
 INSERT INTO import_run (source_id, status, file_path, file_sha256, record_count, started_at)
 VALUES ($1, 'running', $2, $3, $4, $5) RETURNING id
@@ -42,6 +57,23 @@ UPDATE supplier_item SET active = false, updated_at = now() WHERE id = $1
 
 func (q *Queries) DeactivateSupplierItem(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, deactivateSupplierItem, id)
+	return err
+}
+
+const dismissOpenImportTasks = `-- name: DismissOpenImportTasks :exec
+UPDATE task t SET status = 'dismissed', closed_at = now(), closed_by = 'system', note = 'Durch neueren Import ersetzt'
+FROM import_run r
+WHERE r.id = t.import_run_id AND r.source_id = $1::text AND t.kind = $2::text AND t.status = 'open'
+`
+
+type DismissOpenImportTasksParams struct {
+	SourceID string
+	Kind     string
+}
+
+// A newer import replaces the open tasks of that kind about earlier runs.
+func (q *Queries) DismissOpenImportTasks(ctx context.Context, arg DismissOpenImportTasksParams) error {
+	_, err := q.db.Exec(ctx, dismissOpenImportTasks, arg.SourceID, arg.Kind)
 	return err
 }
 
@@ -87,6 +119,62 @@ func (q *Queries) GetAvailabilityMapping(ctx context.Context, id string) ([]byte
 	var availability_mapping []byte
 	err := row.Scan(&availability_mapping)
 	return availability_mapping, err
+}
+
+const getImportRun = `-- name: GetImportRun :one
+SELECT id, source_id, status, file_path FROM import_run WHERE id = $1
+`
+
+type GetImportRunRow struct {
+	ID       int64
+	SourceID string
+	Status   string
+	FilePath *string
+}
+
+func (q *Queries) GetImportRun(ctx context.Context, id int64) (GetImportRunRow, error) {
+	row := q.db.QueryRow(ctx, getImportRun, id)
+	var i GetImportRunRow
+	err := row.Scan(
+		&i.ID,
+		&i.SourceID,
+		&i.Status,
+		&i.FilePath,
+	)
+	return i, err
+}
+
+const getPreviousRunIssues = `-- name: GetPreviousRunIssues :one
+SELECT coalesce(summary->'issues', '[]'::jsonb)::jsonb AS issues
+FROM import_run WHERE source_id = $1 AND status IN ('done', 'held')
+ORDER BY id DESC LIMIT 1
+`
+
+// Data issues of the source's last finished run.
+func (q *Queries) GetPreviousRunIssues(ctx context.Context, sourceID string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getPreviousRunIssues, sourceID)
+	var issues []byte
+	err := row.Scan(&issues)
+	return issues, err
+}
+
+const hasOpenImportTask = `-- name: HasOpenImportTask :one
+SELECT EXISTS (
+    SELECT 1 FROM task t JOIN import_run r ON r.id = t.import_run_id
+    WHERE r.source_id = $1::text AND t.kind = $2::text AND t.status = 'open'
+)::bool AS open
+`
+
+type HasOpenImportTaskParams struct {
+	SourceID string
+	Kind     string
+}
+
+func (q *Queries) HasOpenImportTask(ctx context.Context, arg HasOpenImportTaskParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenImportTask, arg.SourceID, arg.Kind)
+	var open bool
+	err := row.Scan(&open)
+	return open, err
 }
 
 const insertAction = `-- name: InsertAction :one
@@ -288,6 +376,17 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 		arg.ImportRunID,
 	)
 	return err
+}
+
+const latestImportRunID = `-- name: LatestImportRunID :one
+SELECT id FROM import_run WHERE source_id = $1 ORDER BY id DESC LIMIT 1
+`
+
+func (q *Queries) LatestImportRunID(ctx context.Context, sourceID string) (int64, error) {
+	row := q.db.QueryRow(ctx, latestImportRunID, sourceID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listActionItemIDs = `-- name: ListActionItemIDs :many

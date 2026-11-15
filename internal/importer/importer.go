@@ -40,6 +40,10 @@ type Options struct {
 	MaxDropPct float64
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+
+	// confirming is set by ConfirmHeld, which closes the task about the
+	// held run itself.
+	confirming bool
 }
 
 // Result summarizes one run.
@@ -123,6 +127,20 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 		return Result{}, err
 	}
 
+	// What the previous run complained about, to avoid repeating the task.
+	var previousIssues []connector.Issue
+	if raw, err := q.GetPreviousRunIssues(ctx, sourceID); err == nil {
+		_ = json.Unmarshal(raw, &previousIssues)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Result{}, err
+	}
+	// A held delivery can only be confirmed while it is the latest one.
+	if !opt.confirming {
+		if err := q.DismissOpenImportTasks(ctx, db.DismissOpenImportTasksParams{SourceID: sourceID, Kind: "import_held"}); err != nil {
+			return Result{}, err
+		}
+	}
+
 	res := Result{Status: "done", Records: len(parsed.Records)}
 	res.RunID, err = q.CreateImportRun(ctx, db.CreateImportRunParams{
 		SourceID: sourceID, FilePath: &filePath, FileSha256: &fileHash,
@@ -182,14 +200,28 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 	}
 
 	res.Issues = len(issues)
-	if len(issues) > 0 {
-		if err := run.task("data_issue", 3, fmt.Sprintf("%d Datenprobleme im Import", len(issues)),
+	if len(issues) > maxStoredIssues {
+		issues = issues[:maxStoredIssues]
+	}
+	// One open task per source about data issues: it is replaced when the
+	// issues change and not repeated while they stay the same
+	// (docs/decisions/0017).
+	same := sameIssues(previousIssues, issues)
+	stillOpen, err := q.HasOpenImportTask(ctx, db.HasOpenImportTaskParams{SourceID: sourceID, Kind: "data_issue"})
+	if err != nil {
+		return Result{}, err
+	}
+	if !same || len(issues) == 0 {
+		if err := q.DismissOpenImportTasks(ctx, db.DismissOpenImportTasksParams{SourceID: sourceID, Kind: "data_issue"}); err != nil {
+			return Result{}, err
+		}
+		stillOpen = false
+	}
+	if len(issues) > 0 && !same && !stillOpen {
+		if err := run.task("data_issue", 3, fmt.Sprintf("%d Datenprobleme im Import", res.Issues),
 			"Details stehen in der Zusammenfassung des Importlaufs.", nil, nil); err != nil {
 			return Result{}, err
 		}
-	}
-	if len(issues) > maxStoredIssues {
-		issues = issues[:maxStoredIssues]
 	}
 	summary, _ := json.Marshal(map[string]any{
 		"new": res.New, "changed": res.Changed, "removed": res.Removed,
@@ -201,6 +233,19 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 		return Result{}, err
 	}
 	return res, tx.Commit(ctx)
+}
+
+// sameIssues reports whether two runs complain about exactly the same.
+func sameIssues(a, b []connector.Issue) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type prevItem struct {

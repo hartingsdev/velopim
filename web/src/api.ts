@@ -425,3 +425,8 @@ export interface SyncResult {
 export function runSync(): Promise<SyncResult> {
   return request("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
 }
+
+/** Accepts a held delivery as complete; the missing articles are deactivated. */
+export function confirmImportRun(id: number): Promise<{ run_id: number; removed: number }> {
+  return request(`/api/import-runs/${id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, decideTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
+import { ApiError, confirmImportRun, decideTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
 import { Chip, href, SearchBox, type Params } from "./route";
 import {
   axisLabel,
@@ -175,6 +175,24 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
     setBusy(false);
   }
 
+  /** The delivery was complete after all: deactivate what is missing from it. */
+  async function confirmHeld() {
+    setBusy(true);
+    try {
+      await confirmImportRun(task.import_run_id!);
+      onError(null);
+    } catch (e) {
+      const outdated = e instanceof ApiError && e.status === 409;
+      onError(
+        outdated
+          ? "Zu diesem Lieferanten gibt es schon einen neueren Import. Diese Lieferung lässt sich nicht mehr bestätigen; schließe die Aufgabe mit „Nichts deaktivieren“."
+          : (e as Error).message,
+      );
+    }
+    await onChanged();
+    setBusy(false);
+  }
+
   const item = task.item;
   const itemFacts = item
     ? [item.sku, item.model_year, item.color, item.frame_size && `RH ${item.frame_size}`, item.source_id].filter(Boolean)
@@ -244,6 +262,15 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
               </button>
               <button type="button" disabled={busy} onClick={() => void decide(false)}>
                 Ablehnen
+              </button>
+            </>
+          ) : task.kind === "import_held" && task.import_run_id !== null ? (
+            <>
+              <button type="button" className="primary" disabled={busy} onClick={() => void confirmHeld()}>
+                Fehlende Artikel deaktivieren
+              </button>
+              <button type="button" disabled={busy} onClick={() => void decide(false)}>
+                Nichts deaktivieren
               </button>
             </>
           ) : (

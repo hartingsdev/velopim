@@ -311,3 +311,107 @@ func TestNewModelAutoRule(t *testing.T) {
 		t.Errorf("auto-applied model must not create a task")
 	}
 }
+
+func TestConfirmHeldImport(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	conn := newConnector(t)
+	opt := Options{RawDir: t.TempDir()}
+	if _, err := pool.Exec(ctx, `UPDATE source SET connector_config = '{"delimiter": ";", "decimal_comma": true, "columns": {
+		"sku": "Artikelnr", "ean": "EAN", "brand": "Marke", "name": "Bezeichnung", "model_year": "Modelljahr",
+		"color": "Farbe", "frame_size": "Rahmenhoehe", "cost": "EK", "rrp": "UVP"}}' WHERE id = 'example'`); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := Run(ctx, pool, conn, file(row1, row2, row3), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A finished run cannot be confirmed.
+	if _, err := ConfirmHeld(ctx, pool, first.RunID, "robert", opt); !errors.Is(err, ErrRunNotHeld) {
+		t.Errorf("confirming a finished run: got %v, want ErrRunNotHeld", err)
+	}
+
+	held, err := Run(ctx, pool, conn, file(row1), opt)
+	if err != nil || held.Status != "held" {
+		t.Fatalf("truncated delivery: %+v %v", held, err)
+	}
+
+	// Confirming imports the stored file again without the check: the two
+	// missing articles are deactivated and the task is closed.
+	res, err := ConfirmHeld(ctx, pool, held.RunID, "robert", opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "done" || res.Removed != 2 {
+		t.Errorf("confirmed run: %+v", res)
+	}
+	if n := count(t, pool, "supplier_item WHERE active"); n != 1 {
+		t.Errorf("active articles = %d, want 1", n)
+	}
+	if n := count(t, pool, "task WHERE kind = 'import_held' AND status = 'done' AND closed_by = 'robert'"); n != 1 {
+		t.Errorf("held task was not closed by the person confirming")
+	}
+	// The held run is no longer the latest: a second confirmation is refused.
+	if _, err := ConfirmHeld(ctx, pool, held.RunID, "robert", opt); !errors.Is(err, ErrRunNotLatest) {
+		t.Errorf("confirming an outdated run: got %v, want ErrRunNotLatest", err)
+	}
+	if _, err := ConfirmHeld(ctx, pool, 9999, "robert", opt); !errors.Is(err, ErrRunNotHeld) {
+		t.Errorf("unknown run: got %v, want ErrRunNotHeld", err)
+	}
+}
+
+func TestDataIssueTaskIsNotRepeated(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	conn := newConnector(t)
+	opt := Options{RawDir: t.TempDir(), MaxDropPct: 100}
+	tasksNow := func() string {
+		t.Helper()
+		var out *string
+		if err := pool.QueryRow(ctx, `SELECT string_agg(status || ':' || title, ' | ' ORDER BY id) FROM task WHERE kind = 'data_issue'`).Scan(&out); err != nil {
+			t.Fatal(err)
+		}
+		if out == nil {
+			return ""
+		}
+		return *out
+	}
+	run := func(rows ...string) {
+		t.Helper()
+		if _, err := Run(ctx, pool, conn, file(rows...), opt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// row3 has no EAN: one task.
+	run(row1, row3)
+	if got := tasksNow(); got != "open:1 Datenprobleme im Import" {
+		t.Fatalf("first run: %s", got)
+	}
+	// The same problem again: no second task.
+	run(row1, row3)
+	if got := tasksNow(); got != "open:1 Datenprobleme im Import" {
+		t.Errorf("same issues again: %s", got)
+	}
+	// A further problem: the old task is replaced by one for the new state.
+	noEAN := "100-009;;Beispielrad;Trekking 5.4;2027;rot;52;1.000,00;1.999,00;4;"
+	run(row1, row3, noEAN)
+	if got := tasksNow(); got != "dismissed:1 Datenprobleme im Import | open:2 Datenprobleme im Import" {
+		t.Errorf("changed issues: %s", got)
+	}
+	// The person closes the task; the unchanged problems do not come back.
+	if _, err := pool.Exec(ctx, `UPDATE task SET status = 'done' WHERE kind = 'data_issue' AND status = 'open'`); err != nil {
+		t.Fatal(err)
+	}
+	run(row1, row3, noEAN)
+	if got := tasksNow(); got != "dismissed:1 Datenprobleme im Import | done:2 Datenprobleme im Import" {
+		t.Errorf("closed and unchanged: %s", got)
+	}
+	// All problems fixed, then one returns: a new task.
+	run(row1)
+	run(row1, row3)
+	if got := tasksNow(); !strings.HasSuffix(got, "| open:1 Datenprobleme im Import") {
+		t.Errorf("problem returned: %s", got)
+	}
+}

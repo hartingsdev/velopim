@@ -20,6 +20,7 @@ import (
 
 	"velopim/internal/catalog"
 	"velopim/internal/db"
+	"velopim/internal/importer"
 	"velopim/internal/shopsync"
 	"velopim/internal/tasks"
 )
@@ -130,15 +131,27 @@ type server struct {
 	actor string
 	// store is the Shopify client; nil when no store is configured.
 	store shopsync.Store
+	// rawDir is where original supplier files are kept.
+	rawDir string
 }
+
+// Option configures the API.
+type Option func(*server)
+
+// WithRawDir sets where original supplier files are kept; needed to confirm
+// a held import.
+func WithRawDir(dir string) Option { return func(s *server) { s.rawDir = dir } }
 
 // New returns the handler for everything under /api. actor is recorded as
 // the person behind every decision.
 //
 // store is the Shopify client used by POST /api/sync; pass nil when no store
 // is configured.
-func New(pool *pgxpool.Pool, actor string, store shopsync.Store) http.Handler {
+func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option) http.Handler {
 	s := &server{pool: pool, actor: actor, store: store}
+	for _, opt := range opts {
+		opt(s)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -146,6 +159,7 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store) http.Handler {
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/decision", s.decideTask)
 	mux.HandleFunc("GET /api/import-runs", s.listImportRuns)
+	mux.HandleFunc("POST /api/import-runs/{id}/confirm", s.confirmImportRun)
 	mux.HandleFunc("GET /api/products", s.listProducts)
 	mux.HandleFunc("GET /api/supplier-items", s.searchSupplierItems)
 	mux.HandleFunc("GET /api/products/{id}", s.getProduct)
@@ -300,6 +314,30 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// confirmImportRun accepts a held delivery as complete and deactivates the
+// articles missing from it.
+func (s *server) confirmImportRun(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var in struct{}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	res, err := importer.ConfirmHeld(r.Context(), s.pool, id, s.actor, importer.Options{RawDir: s.rawDir})
+	switch {
+	case errors.Is(err, importer.ErrRunNotHeld):
+		writeError(w, http.StatusConflict, "import run is not held")
+	case errors.Is(err, importer.ErrRunNotLatest):
+		writeError(w, http.StatusConflict, "a newer import exists for this source")
+	case err != nil:
+		internalError(w, err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"run_id": res.RunID, "removed": res.Removed})
+	}
 }
 
 func str(s *string) string {
