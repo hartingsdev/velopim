@@ -20,6 +20,7 @@ import (
 
 	"velopim/internal/catalog"
 	"velopim/internal/db"
+	"velopim/internal/shopsync"
 	"velopim/internal/tasks"
 )
 
@@ -40,10 +41,12 @@ type Task struct {
 	Note        *string    `json:"note"`
 	ImportRunID *int64     `json:"import_run_id"`
 	// Category groups tasks for filtering: price, new_model, availability,
-	// removed, content, import or other.
-	Category string      `json:"category"`
-	Action   *TaskAction `json:"action"`
-	Item     *TaskItem   `json:"item"`
+	// removed, content, import, shopify or other.
+	Category string `json:"category"`
+	// ProductID is set for tasks about a product of the own catalog.
+	ProductID *int64      `json:"product_id"`
+	Action    *TaskAction `json:"action"`
+	Item      *TaskItem   `json:"item"`
 	// Variants lists the supplier items of a new-model task.
 	Variants []TaskItem `json:"variants"`
 	// LockedSplitBy is set when the model already has products: their cut
@@ -125,12 +128,17 @@ type Decision struct {
 type server struct {
 	pool  *pgxpool.Pool
 	actor string
+	// store is the Shopify client; nil when no store is configured.
+	store shopsync.Store
 }
 
 // New returns the handler for everything under /api. actor is recorded as
 // the person behind every decision.
-func New(pool *pgxpool.Pool, actor string) http.Handler {
-	s := &server{pool: pool, actor: actor}
+//
+// store is the Shopify client used by POST /api/sync; pass nil when no store
+// is configured.
+func New(pool *pgxpool.Pool, actor string, store shopsync.Store) http.Handler {
+	s := &server{pool: pool, actor: actor, store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -152,6 +160,7 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 	mux.HandleFunc("PUT /api/usage-policies", s.putUsagePolicy)
 	mux.HandleFunc("DELETE /api/usage-policies", s.deleteUsagePolicy)
 	mux.HandleFunc("GET /api/sync-plan", s.syncPlan)
+	mux.HandleFunc("POST /api/sync", s.runSync)
 	mux.HandleFunc("GET /api/pricing-rules", s.listPricingRules)
 	mux.HandleFunc("PUT /api/pricing-rules", s.putPricingRule)
 	mux.HandleFunc("DELETE /api/pricing-rules/{id}", s.deletePricingRule)
@@ -162,7 +171,7 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 }
 
 // taskCategories are the values of Task.Category, in display order.
-var taskCategories = []string{"price", "new_model", "availability", "removed", "content", "import", "other"}
+var taskCategories = []string{"price", "new_model", "availability", "removed", "content", "import", "shopify", "other"}
 
 func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.pool)
@@ -216,7 +225,7 @@ func taskFromRow(row db.ListTasksRow) Task {
 	t := Task{
 		ID: row.ID, Kind: row.Kind, Title: row.Title, Detail: row.Detail, Status: row.Status,
 		Priority: int(row.Priority), CreatedAt: row.CreatedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy,
-		Note: row.Note, ImportRunID: row.ImportRunID, Category: row.Category, Variants: []TaskItem{},
+		Note: row.Note, ImportRunID: row.ImportRunID, Category: row.Category, ProductID: row.ProductID, Variants: []TaskItem{},
 	}
 	if row.ActionType != nil {
 		t.Action = &TaskAction{Type: *row.ActionType, Field: str(row.ActionField), Old: str(row.OldValue),

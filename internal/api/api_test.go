@@ -66,7 +66,7 @@ func getTasks(t *testing.T, h http.Handler, status string) TaskList {
 func TestTaskListAndDecision(t *testing.T) {
 	pool := dbtest.New(t)
 	approval, plain := seed(t, pool)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	ctx := context.Background()
 
 	list := getTasks(t, h, "open")
@@ -154,7 +154,7 @@ func TestModelTaskListsItsVariants(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	list := getTasks(t, New(pool, "tester"), "open")
+	list := getTasks(t, New(pool, "tester", nil), "open")
 	var skus []string
 	for _, task := range list.Tasks {
 		if task.Variants == nil {
@@ -180,7 +180,7 @@ func TestModelTaskListsItsVariants(t *testing.T) {
 func TestImportRunsAndFallbacks(t *testing.T) {
 	pool := dbtest.New(t)
 	seed(t, pool)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 
 	rec := do(t, h, "GET", "/api/import-runs", "", "")
 	if rec.Code != http.StatusOK {
@@ -206,7 +206,7 @@ func TestImportRunsAndFallbacks(t *testing.T) {
 
 func TestPricingRulesAndModelApproval(t *testing.T) {
 	pool := dbtest.New(t)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
 		INSERT INTO supplier_item (source_id, sku, brand, name, model_year, color, frame_size, cost_cents, rrp_cents, attributes) VALUES
@@ -305,7 +305,7 @@ func TestPricingRulesAndModelApproval(t *testing.T) {
 func TestSearchAndFilters(t *testing.T) {
 	pool := dbtest.New(t)
 	approval, _ := seed(t, pool) // one price task for article 100-001, one data issue task
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO supplier_item (source_id, sku, ean, brand, name, model_year, color, frame_size, cost_cents) VALUES
 		  ('example', '200-001', '4006381333931', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000),
@@ -430,7 +430,7 @@ func TestSearchAndFilters(t *testing.T) {
 func TestRules(t *testing.T) {
 	pool := dbtest.New(t)
 	seed(t, pool) // rule 1 "prices need approval" has decided an action
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	const jsonType = "application/json"
 
 	create := `{"name":"Senkungen weitergeben","enabled":true,"action_type":"price_change","scope":{"source_id":"example","brand":"Beispielrad"},
@@ -490,7 +490,7 @@ func TestRules(t *testing.T) {
 
 func TestProductDetailAndEditing(t *testing.T) {
 	pool := dbtest.New(t)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	const jsonType = "application/json"
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
@@ -578,7 +578,7 @@ func TestProductDetailAndEditing(t *testing.T) {
 func TestUsagePolicies(t *testing.T) {
 	pool := dbtest.New(t)
 	seed(t, pool)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	const jsonType = "application/json"
 	cases := []struct {
 		name, body string
@@ -626,7 +626,7 @@ func TestUsagePolicies(t *testing.T) {
 
 func TestSyncPlanIsADryRun(t *testing.T) {
 	pool := dbtest.New(t)
-	h := New(pool, "tester")
+	h := New(pool, "tester", nil)
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
 		INSERT INTO supplier_item (source_id, sku, brand, name, cost_cents, availability, availability_status) VALUES

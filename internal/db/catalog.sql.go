@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+const closeSyncFailedTasks = `-- name: CloseSyncFailedTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = 'system', note = 'Übertragung inzwischen erfolgreich'
+WHERE product_id = $1 AND kind = 'sync_failed' AND status = 'open'
+`
+
+func (q *Queries) CloseSyncFailedTasks(ctx context.Context, productID *int64) error {
+	_, err := q.db.Exec(ctx, closeSyncFailedTasks, productID)
+	return err
+}
+
 const countProducts = `-- name: CountProducts :one
 SELECT count(*) AS total,
        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL)) AS unpriced
@@ -109,6 +119,17 @@ func (q *Queries) GetProductImages(ctx context.Context, id int64) ([]byte, error
 	return image_urls, err
 }
 
+const getProductStatus = `-- name: GetProductStatus :one
+SELECT status FROM product WHERE id = $1
+`
+
+func (q *Queries) GetProductStatus(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, getProductStatus, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
 const getProductText = `-- name: GetProductText :one
 SELECT name, description_html FROM product WHERE id = $1
 `
@@ -193,6 +214,22 @@ func (q *Queries) GetVariantProduct(ctx context.Context, id int64) (int64, error
 	var product_id int64
 	err := row.Scan(&product_id)
 	return product_id, err
+}
+
+const hasOpenProductTask = `-- name: HasOpenProductTask :one
+SELECT EXISTS (SELECT 1 FROM task t WHERE t.product_id = $1::bigint AND t.kind = $2::text AND t.status = 'open')::bool AS open
+`
+
+type HasOpenProductTaskParams struct {
+	ProductID int64
+	Kind      string
+}
+
+func (q *Queries) HasOpenProductTask(ctx context.Context, arg HasOpenProductTaskParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenProductTask, arg.ProductID, arg.Kind)
+	var open bool
+	err := row.Scan(&open)
+	return open, err
 }
 
 const insertCatalogFieldChange = `-- name: InsertCatalogFieldChange :exec
@@ -280,6 +317,29 @@ func (q *Queries) InsertProductNote(ctx context.Context, arg InsertProductNotePa
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertProductTask = `-- name: InsertProductTask :exec
+INSERT INTO task (kind, title, detail, priority, product_id) VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertProductTaskParams struct {
+	Kind      string
+	Title     string
+	Detail    string
+	Priority  int16
+	ProductID *int64
+}
+
+func (q *Queries) InsertProductTask(ctx context.Context, arg InsertProductTaskParams) error {
+	_, err := q.db.Exec(ctx, insertProductTask,
+		arg.Kind,
+		arg.Title,
+		arg.Detail,
+		arg.Priority,
+		arg.ProductID,
+	)
+	return err
 }
 
 const insertVariant = `-- name: InsertVariant :one
@@ -901,9 +961,9 @@ func (q *Queries) ListVariantsOfProducts(ctx context.Context, productIds []int64
 
 const listWantedProducts = `-- name: ListWantedProducts :many
 SELECT p.id, p.brand, p.name, p.category, p.status, p.description_html, p.image_urls, p.option_names,
-       l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
+       l.wanted, l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
 FROM product p JOIN shopify_listing l ON l.product_id = p.id
-WHERE l.wanted
+WHERE l.wanted OR l.shopify_product_id IS NOT NULL
 ORDER BY p.brand, p.model_key, p.id
 `
 
@@ -916,13 +976,15 @@ type ListWantedProductsRow struct {
 	DescriptionHtml  string
 	ImageUrls        []byte
 	OptionNames      []byte
+	Wanted           bool
 	ShopifyProductID *string
 	SyncedProjection []byte
 	LastSyncedAt     *time.Time
 	LastError        *string
 }
 
-// Products selected for the store, with what Shopify last confirmed.
+// Products selected for the store or already in Shopify, with what Shopify
+// last confirmed.
 func (q *Queries) ListWantedProducts(ctx context.Context) ([]ListWantedProductsRow, error) {
 	rows, err := q.db.Query(ctx, listWantedProducts)
 	if err != nil {
@@ -941,6 +1003,7 @@ func (q *Queries) ListWantedProducts(ctx context.Context) ([]ListWantedProductsR
 			&i.DescriptionHtml,
 			&i.ImageUrls,
 			&i.OptionNames,
+			&i.Wanted,
 			&i.ShopifyProductID,
 			&i.SyncedProjection,
 			&i.LastSyncedAt,
@@ -965,6 +1028,47 @@ func (q *Queries) NextVariantNumber(ctx context.Context) (int64, error) {
 	var nextval int64
 	err := row.Scan(&nextval)
 	return nextval, err
+}
+
+const saveListingError = `-- name: SaveListingError :exec
+UPDATE shopify_listing SET last_error = $2 WHERE product_id = $1
+`
+
+type SaveListingErrorParams struct {
+	ProductID int64
+	LastError *string
+}
+
+func (q *Queries) SaveListingError(ctx context.Context, arg SaveListingErrorParams) error {
+	_, err := q.db.Exec(ctx, saveListingError, arg.ProductID, arg.LastError)
+	return err
+}
+
+const saveListingSynced = `-- name: SaveListingSynced :exec
+UPDATE shopify_listing SET shopify_product_id = $2, variant_ids = $3, synced_projection = $4, synced_hash = $5,
+    last_synced_at = $6, last_error = NULL
+WHERE product_id = $1
+`
+
+type SaveListingSyncedParams struct {
+	ProductID        int64
+	ShopifyProductID *string
+	VariantIds       []byte
+	SyncedProjection []byte
+	SyncedHash       *string
+	LastSyncedAt     *time.Time
+}
+
+func (q *Queries) SaveListingSynced(ctx context.Context, arg SaveListingSyncedParams) error {
+	_, err := q.db.Exec(ctx, saveListingSynced,
+		arg.ProductID,
+		arg.ShopifyProductID,
+		arg.VariantIds,
+		arg.SyncedProjection,
+		arg.SyncedHash,
+		arg.LastSyncedAt,
+	)
+	return err
 }
 
 const setActionProposedPrice = `-- name: SetActionProposedPrice :exec
@@ -1021,6 +1125,20 @@ type SetProductImagesParams struct {
 
 func (q *Queries) SetProductImages(ctx context.Context, arg SetProductImagesParams) error {
 	_, err := q.db.Exec(ctx, setProductImages, arg.ID, arg.ImageUrls)
+	return err
+}
+
+const setProductStatus = `-- name: SetProductStatus :exec
+UPDATE product SET status = $2, updated_at = now() WHERE id = $1
+`
+
+type SetProductStatusParams struct {
+	ID     int64
+	Status string
+}
+
+func (q *Queries) SetProductStatus(ctx context.Context, arg SetProductStatusParams) error {
+	_, err := q.db.Exec(ctx, setProductStatus, arg.ID, arg.Status)
 	return err
 }
 

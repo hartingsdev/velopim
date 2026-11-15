@@ -2,6 +2,8 @@
 //
 //	velopim serve                    start the web server (default)
 //	velopim import <source> <file>   import one supplier delivery
+//	velopim sync                     send pending changes to Shopify
+//	velopim shopify-check            test the Shopify connection (read only)
 package main
 
 import (
@@ -14,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +28,8 @@ import (
 	"velopim/internal/connector/csvfile"
 	"velopim/internal/db"
 	"velopim/internal/importer"
+	"velopim/internal/shopify"
+	"velopim/internal/shopsync"
 	"velopim/web"
 )
 
@@ -48,8 +53,12 @@ func main() {
 			break
 		}
 		err = runImport(ctx, args[0], args[1])
+	case "shopify-check":
+		err = shopifyCheck(ctx)
+	case "sync":
+		err = runSync(ctx)
 	default:
-		err = fmt.Errorf("unknown command %q (serve, import)", cmd)
+		err = fmt.Errorf("unknown command %q (serve, import, sync, shopify-check)", cmd)
 	}
 	if err != nil {
 		log.Fatalf("velopim: %v", err)
@@ -87,7 +96,17 @@ func serve(ctx context.Context) error {
 	defer pool.Close()
 
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber")))
+	// Without Shopify settings the server runs without a store; the sync
+	// preview still works.
+	var store shopsync.Store
+	if cfg := shopifyConfig(); cfg.StoreDomain != "" {
+		client, err := shopify.NewClient(cfg)
+		if err != nil {
+			return err
+		}
+		store = client
+	}
+	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store))
 	mux.Handle("/", web.Handler())
 
 	// There is no login: keep the default on localhost.
@@ -103,6 +122,68 @@ func serve(ctx context.Context) error {
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	return nil
+}
+
+// shopifyConfig reads the Shopify settings from the environment.
+func shopifyConfig() shopify.Config {
+	return shopify.Config{
+		StoreDomain:  os.Getenv("SHOPIFY_STORE_DOMAIN"),
+		ClientID:     os.Getenv("SHOPIFY_CLIENT_ID"),
+		ClientSecret: os.Getenv("SHOPIFY_CLIENT_SECRET"),
+		WriteEnabled: os.Getenv("SHOPIFY_WRITE_ENABLED") == "true",
+	}
+}
+
+// shopifyCheck reads the shop and the token's scopes. It writes nothing.
+func shopifyCheck(ctx context.Context) error {
+	cfg := shopifyConfig()
+	client, err := shopify.NewClient(cfg)
+	if err != nil {
+		return err
+	}
+	shop, err := client.GetShop(ctx)
+	if err != nil {
+		return err
+	}
+	scopes, err := client.Scopes(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Store: %s (%s)\nPlan: %s\nDevelopment-Store: %v\nRechte: %s\nSchreiben eingeschaltet: %v\n",
+		shop.Name, shop.Domain, shop.PlanName, shop.DevStore, strings.Join(scopes, ", "), cfg.WriteEnabled)
+	if !shop.DevStore {
+		fmt.Println("Achtung: Shopify meldet keinen Development-Store. velopim schreibt nicht in diesen Store.")
+	}
+	return nil
+}
+
+// runSync sends pending changes of the products selected for the store.
+func runSync(ctx context.Context) error {
+	pool, err := openDB(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	client, err := shopify.NewClient(shopifyConfig())
+	if err != nil {
+		return err
+	}
+	res, err := shopsync.Run(ctx, pool, client, time.Now())
+	for _, p := range res.Products {
+		line := p.Name + ": " + map[string]string{"synced": "übertragen", "unchanged": "unverändert", "failed": "fehlgeschlagen"}[p.Status]
+		if p.Created {
+			line += " (neu in Shopify, Entwurf)"
+		}
+		if p.Error != "" {
+			line += " – " + p.Error
+		}
+		fmt.Println(line)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d übertragen, %d unverändert, %d fehlgeschlagen\n", res.Synced, res.Unchanged, res.Failed)
 	return nil
 }
 

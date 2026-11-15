@@ -207,11 +207,12 @@ DELETE FROM usage_policy WHERE source_id = $1 AND brand = $2 AND field_group = $
 SELECT source_id, brand FROM supplier_item WHERE id = $1;
 
 -- name: ListWantedProducts :many
--- Products selected for the store, with what Shopify last confirmed.
+-- Products selected for the store or already in Shopify, with what Shopify
+-- last confirmed.
 SELECT p.id, p.brand, p.name, p.category, p.status, p.description_html, p.image_urls, p.option_names,
-       l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
+       l.wanted, l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
 FROM product p JOIN shopify_listing l ON l.product_id = p.id
-WHERE l.wanted
+WHERE l.wanted OR l.shopify_product_id IS NOT NULL
 ORDER BY p.brand, p.model_key, p.id;
 
 -- name: ListVariantsForProjection :many
@@ -223,3 +224,27 @@ LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
 LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
 WHERE v.product_id = ANY(sqlc.arg(product_ids)::bigint[])
 ORDER BY v.product_id, v.id;
+
+-- name: SaveListingSynced :exec
+UPDATE shopify_listing SET shopify_product_id = $2, variant_ids = $3, synced_projection = $4, synced_hash = $5,
+    last_synced_at = $6, last_error = NULL
+WHERE product_id = $1;
+
+-- name: SaveListingError :exec
+UPDATE shopify_listing SET last_error = $2 WHERE product_id = $1;
+
+-- name: HasOpenProductTask :one
+SELECT EXISTS (SELECT 1 FROM task t WHERE t.product_id = sqlc.arg(product_id)::bigint AND t.kind = sqlc.arg(kind)::text AND t.status = 'open')::bool AS open;
+
+-- name: InsertProductTask :exec
+INSERT INTO task (kind, title, detail, priority, product_id) VALUES ($1, $2, $3, $4, $5);
+
+-- name: CloseSyncFailedTasks :exec
+UPDATE task SET status = 'done', closed_at = now(), closed_by = 'system', note = 'Übertragung inzwischen erfolgreich'
+WHERE product_id = $1 AND kind = 'sync_failed' AND status = 'open';
+
+-- name: GetProductStatus :one
+SELECT status FROM product WHERE id = $1;
+
+-- name: SetProductStatus :exec
+UPDATE product SET status = $2, updated_at = now() WHERE id = $1;

@@ -36,6 +36,7 @@ SELECT (CASE
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
            WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END)::text AS category, count(*) AS count
 FROM task t
@@ -214,7 +215,7 @@ func (q *Queries) ListImportRuns(ctx context.Context, limit int32) ([]ListImport
 
 const listTasks = `-- name: ListTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
-       t.import_run_id, t.action_id,
+       t.import_run_id, t.action_id, t.product_id,
        a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key, a.base_price_cents, a.proposed_price_cents,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size,
@@ -225,6 +226,7 @@ SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.cl
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
            WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END)::text AS category
 FROM task t
@@ -239,6 +241,7 @@ WHERE (t.status = 'open') = $1::bool
            WHEN a.type = 'deactivation' THEN 'removed'
            WHEN a.type IS NOT NULL THEN 'content'
            WHEN t.kind IN ('import_held', 'data_issue') THEN 'import'
+           WHEN t.kind IN ('publish_product', 'sync_failed') THEN 'shopify'
            ELSE 'other'
        END) = $2::text)
   AND ($3::text = ''
@@ -273,6 +276,7 @@ type ListTasksRow struct {
 	Note               *string
 	ImportRunID        *int64
 	ActionID           *int64
+	ProductID          *int64
 	ActionType         *string
 	ActionField        *string
 	OldValue           *string
@@ -321,6 +325,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTas
 			&i.Note,
 			&i.ImportRunID,
 			&i.ActionID,
+			&i.ProductID,
 			&i.ActionType,
 			&i.ActionField,
 			&i.OldValue,

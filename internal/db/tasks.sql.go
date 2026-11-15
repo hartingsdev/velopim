@@ -12,7 +12,7 @@ import (
 const closeOpenTask = `-- name: CloseOpenTask :one
 UPDATE task SET status = $2, closed_at = now(), closed_by = $3, note = $4
 WHERE id = $1 AND status = 'open'
-RETURNING action_id
+RETURNING action_id, kind, product_id
 `
 
 type CloseOpenTaskParams struct {
@@ -22,16 +22,22 @@ type CloseOpenTaskParams struct {
 	Note     *string
 }
 
-func (q *Queries) CloseOpenTask(ctx context.Context, arg CloseOpenTaskParams) (*int64, error) {
+type CloseOpenTaskRow struct {
+	ActionID  *int64
+	Kind      string
+	ProductID *int64
+}
+
+func (q *Queries) CloseOpenTask(ctx context.Context, arg CloseOpenTaskParams) (CloseOpenTaskRow, error) {
 	row := q.db.QueryRow(ctx, closeOpenTask,
 		arg.ID,
 		arg.Status,
 		arg.ClosedBy,
 		arg.Note,
 	)
-	var action_id *int64
-	err := row.Scan(&action_id)
-	return action_id, err
+	var i CloseOpenTaskRow
+	err := row.Scan(&i.ActionID, &i.Kind, &i.ProductID)
+	return i, err
 }
 
 const decidePendingAction = `-- name: DecidePendingAction :one

@@ -62,13 +62,21 @@ func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, d Decision) e
 		taskStatus, actionStatus = "dismissed", "rejected"
 	}
 	q := db.New(tx)
-	actionID, err := q.CloseOpenTask(ctx, db.CloseOpenTaskParams{ID: taskID, Status: taskStatus, ClosedBy: &d.Actor, Note: &d.Note})
+	closed, err := q.CloseOpenTask(ctx, db.CloseOpenTaskParams{ID: taskID, Status: taskStatus, ClosedBy: &d.Actor, Note: &d.Note})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotOpen
 	}
 	if err != nil {
 		return err
 	}
+	// Approving the publish task makes the product active; the next sync
+	// publishes it in Shopify (docs/decisions/0025).
+	if d.Approve && closed.Kind == "publish_product" && closed.ProductID != nil {
+		if err := publish(ctx, q, *closed.ProductID, d.Actor); err != nil {
+			return err
+		}
+	}
+	actionID := closed.ActionID
 	if actionID != nil {
 		action, err := q.DecidePendingAction(ctx, db.DecidePendingActionParams{
 			ID: *actionID, Status: actionStatus, DecidedBy: &d.Actor, DecisionNote: &d.Note})
@@ -85,6 +93,23 @@ func Decide(ctx context.Context, pool *pgxpool.Pool, taskID int64, d Decision) e
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// publish sets a draft product active and records who did it.
+func publish(ctx context.Context, q *db.Queries, productID int64, actor string) error {
+	status, err := q.GetProductStatus(ctx, productID)
+	if err != nil {
+		return err
+	}
+	if status == "active" {
+		return nil
+	}
+	if err := q.SetProductStatus(ctx, db.SetProductStatusParams{ID: productID, Status: "active"}); err != nil {
+		return err
+	}
+	active, reason := "active", "Nach Prüfung im Shop veröffentlicht"
+	return q.InsertCatalogFieldChange(ctx, db.InsertCatalogFieldChangeParams{EntityType: "product", EntityID: productID,
+		Field: "status", OldValue: &status, NewValue: &active, Origin: "user", Actor: &actor, Reason: &reason})
 }
 
 // apply carries out an approved action in the own catalog.

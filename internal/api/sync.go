@@ -1,18 +1,18 @@
 package api
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"time"
 
-	"velopim/internal/availability"
 	"velopim/internal/db"
 	"velopim/internal/shopify"
+	"velopim/internal/shopsync"
 )
 
 // SyncPlan is the response of GET /api/sync-plan: what a sync would send to
-// Shopify. Nothing is sent; there is no sync client yet.
+// Shopify. Reading the plan sends nothing.
 type SyncPlan struct {
 	// StoreConfigured reports whether Shopify credentials are set.
 	StoreConfigured bool `json:"store_configured"`
@@ -23,8 +23,11 @@ type SyncPlan struct {
 
 // PlanProduct is the planned sync of one product.
 type PlanProduct struct {
-	ProductID  int64           `json:"product_id"`
-	Name       string          `json:"name"`
+	ProductID int64  `json:"product_id"`
+	Name      string `json:"name"`
+	// Wanted is false for a product taken out of the store that still
+	// exists in Shopify; the sync sets it back to draft.
+	Wanted     bool            `json:"wanted"`
 	InShopify  bool            `json:"in_shopify"`
 	LastSynced *time.Time      `json:"last_synced_at"`
 	LastError  *string         `json:"last_error"`
@@ -34,70 +37,44 @@ type PlanProduct struct {
 }
 
 func (s *server) syncPlan(w http.ResponseWriter, r *http.Request) {
-	q := db.New(s.pool)
-	rows, err := q.ListWantedProducts(r.Context())
+	items, err := shopsync.Plan(r.Context(), db.New(s.pool), time.Now())
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	ids := make([]int64, len(rows))
-	for i, row := range rows {
-		ids[i] = row.ID
-	}
-	variants, err := q.ListVariantsForProjection(r.Context(), ids)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	byProduct := map[int64][]shopify.CatalogVariant{}
-	for _, v := range variants {
-		cv := shopify.CatalogVariant{SKU: v.Sku, EAN: v.Ean}
-		_ = json.Unmarshal(v.OptionValues, &cv.OptionValues)
-		if v.PriceCents != nil {
-			cv.PriceCents = *v.PriceCents
-		}
-		if v.CompareAtCents != nil {
-			cv.CompareAtCents = *v.CompareAtCents
-		}
-		if v.SupplierActive != nil && *v.SupplierActive && v.Availability != nil {
-			var av availability.Availability
-			if err := json.Unmarshal(v.Availability, &av); err == nil {
-				cv.Availability = &av
-			}
-		}
-		byProduct[v.ProductID] = append(byProduct[v.ProductID], cv)
-	}
-
 	plan := SyncPlan{
-		StoreConfigured: os.Getenv("SHOPIFY_STORE_DOMAIN") != "" && os.Getenv("SHOPIFY_CLIENT_ID") != "",
+		StoreConfigured: s.store != nil,
 		WriteEnabled:    os.Getenv("SHOPIFY_WRITE_ENABLED") == "true",
-		Products:        make([]PlanProduct, 0, len(rows)),
+		Products:        make([]PlanProduct, 0, len(items)),
 	}
-	now := time.Now()
-	for _, row := range rows {
-		cp := shopify.CatalogProduct{Title: row.Name, DescriptionHTML: row.DescriptionHtml, Vendor: row.Brand,
-			ProductType: row.Category, Active: row.Status == "active", Variants: byProduct[row.ID]}
-		_ = json.Unmarshal(row.OptionNames, &cp.Options)
-		_ = json.Unmarshal(row.ImageUrls, &cp.ImageURLs)
-		next := shopify.Project(cp, now)
-
-		var synced *shopify.Product
-		if row.SyncedProjection != nil {
-			var p shopify.Product
-			if err := json.Unmarshal(row.SyncedProjection, &p); err == nil {
-				synced = &p
-			}
-		}
-		item := PlanProduct{ProductID: row.ID, Name: row.Brand + " " + row.Name, InShopify: row.ShopifyProductID != nil,
-			LastSynced: row.LastSyncedAt, LastError: row.LastError, Ops: shopify.Diff(synced, next), Issues: []string{},
-			Projection: next}
-		if item.Ops == nil {
-			item.Ops = []shopify.Op{}
-		}
-		for _, e := range shopify.Validate(next) {
-			item.Issues = append(item.Issues, e.Error())
-		}
-		plan.Products = append(plan.Products, item)
+	for _, item := range items {
+		plan.Products = append(plan.Products, PlanProduct{ProductID: item.ProductID, Name: item.Name, Wanted: item.Wanted,
+			InShopify: item.ShopifyID != "", LastSynced: item.LastSynced, LastError: item.LastError, Ops: item.Ops,
+			Issues: item.Issues, Projection: item.Next})
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+// runSync sends the pending changes to Shopify. It answers 409 when no
+// store is configured or writing is switched off.
+func (s *server) runSync(w http.ResponseWriter, r *http.Request) {
+	var in struct{}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if s.store == nil {
+		writeError(w, http.StatusConflict, "no Shopify store is configured")
+		return
+	}
+	res, err := shopsync.Run(r.Context(), s.pool, s.store, time.Now())
+	switch {
+	case errors.Is(err, shopify.ErrWritesDisabled):
+		writeError(w, http.StatusConflict, "writing to Shopify is switched off (SHOPIFY_WRITE_ENABLED)")
+	case errors.Is(err, shopify.ErrNotDevStore):
+		writeError(w, http.StatusConflict, "the configured store is not a development store")
+	case err != nil:
+		internalError(w, err)
+	default:
+		writeJSON(w, http.StatusOK, res)
+	}
 }
