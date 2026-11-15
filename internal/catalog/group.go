@@ -163,13 +163,59 @@ func Group(items []connector.SupplierItem, s Settings) []Product {
 	return out
 }
 
+// spellings picks one spelling for values of an axis that differ only in
+// case ("Schwarz", "schwarz"): the most frequent one, the smaller string on
+// a tie. Suppliers are not consistent, customers should see one value.
+type spellings map[Axis]map[string]string
+
+func spellingsOf(items []connector.SupplierItem, axes []Axis) spellings {
+	out := spellings{}
+	for _, axis := range axes {
+		if _, done := out[axis]; done {
+			continue
+		}
+		counts := map[string]map[string]int{}
+		for _, it := range items {
+			v := axis.value(it)
+			if v == "" {
+				continue
+			}
+			folded := strings.ToLower(v)
+			if counts[folded] == nil {
+				counts[folded] = map[string]int{}
+			}
+			counts[folded][v]++
+		}
+		out[axis] = map[string]string{}
+		for folded, variants := range counts {
+			best := ""
+			for v, n := range variants {
+				if best == "" || n > variants[best] || (n == variants[best] && v < best) {
+					best = v
+				}
+			}
+			out[axis][folded] = best
+		}
+	}
+	return out
+}
+
+func (sp spellings) value(axis Axis, it connector.SupplierItem) string {
+	v := axis.value(it)
+	if chosen, ok := sp[axis][strings.ToLower(v)]; ok {
+		return chosen
+	}
+	return v
+}
+
 func groupModel(model ModelKey, items []connector.SupplierItem, cfg Config) []Product {
+	spelling := spellingsOf(items, append(append([]Axis{}, cfg.SplitBy...), cfg.Options...))
 	bySplit := map[string][]connector.SupplierItem{}
 	splits := map[string][]AxisValue{}
 	for _, it := range items {
 		split := make([]AxisValue, len(cfg.SplitBy))
 		for i, axis := range cfg.SplitBy {
-			split[i] = AxisValue{Axis: axis, Value: axis.value(it)}
+			split[i] = AxisValue{Axis: axis, Value: spelling.value(axis, it)}
 		}
 		key := splitKey(split)
 		bySplit[key] = append(bySplit[key], it)
@@ -207,7 +253,7 @@ func groupModel(model ModelKey, items []connector.SupplierItem, cfg Config) []Pr
 		for _, it := range group {
 			v := Variant{SKU: it.SKU, OptionValues: make([]string, len(p.OptionAxes))}
 			for i, axis := range p.OptionAxes {
-				v.OptionValues[i] = axis.value(it)
+				v.OptionValues[i] = spelling.value(axis, it)
 				if v.OptionValues[i] == "" {
 					p.Issues = append(p.Issues, fmt.Sprintf("Artikel %s hat keinen Wert für %q", it.SKU, axis.Label()))
 				}
@@ -246,10 +292,12 @@ func anyValue(items []connector.SupplierItem, axis Axis) bool {
 	return false
 }
 
+// splitKey identifies a product within its model. Case does not count, so
+// a later delivery spelled differently finds the existing product.
 func splitKey(split []AxisValue) string {
 	parts := make([]string, len(split))
 	for i, sv := range split {
-		parts[i] = sv.Value
+		parts[i] = strings.ToLower(sv.Value)
 	}
 	return strings.Join(parts, "\x00")
 }

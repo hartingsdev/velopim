@@ -26,7 +26,7 @@
 - **Produktdaten vom ersten Artikel:** Kategorie und Beschreibung des Produkts stammen vom ersten Artikel der Gruppe.
 - **Handänderungen und Lieferant:** Ein von Hand geänderter Text wird überschrieben, wenn später eine Textänderung des Lieferanten freigegeben wird. Es gibt noch keine Sperre je Feld.
 - **Alte englische Texte:** Datenprobleme aus Importen vor der Umstellung stehen noch englisch in der Datenbank.
-- **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.
+- **Schreibweisen:** „Schwarz“ und „schwarz“ gelten innerhalb einer Lieferung als ein Wert (die häufigere Schreibweise gewinnt). Andere Abweichungen („schwarz matt“ und „Schwarz-matt“, Leerzeichen, Umlaute) bleiben verschiedene Werte; eine später gelieferte Variante behält ihre eigene Schreibweise.
 - **Lieferzeit-Texte:** stehen fest im Code (`availability.Derive`), sollen konfigurierbar werden.
 - **Testbilder:** Die Beispieldaten haben unerreichbare Bildadressen (`example.test`); ein Sync damit erzeugt den Task „Bilder fehlen in Shopify“.
 - **Automatischer Sync braucht den Schreibschalter:** Solange `SHOPIFY_WRITE_ENABLED=false` in der `.env` steht, wird nichts automatisch übertragen.

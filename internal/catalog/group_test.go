@@ -57,6 +57,25 @@ func TestGroup(t *testing.T) {
 			want:     []string{"Trekking 5.4 [Farbe,Rahmenhöhe] 1=schwarz/52 2=schwarz/56 3=silber/52 4=silber/56"},
 		},
 		{
+			name: "spelling that differs only in case is one value: most frequent wins, then the smaller string",
+			items: []connector.SupplierItem{
+				item("1", "Trekking 5.4", "Schwarz", "52"), item("2", "Trekking 5.4", "schwarz", "56"),
+				item("3", "Trekking 5.4", "schwarz", "60"), item("4", "Trekking 5.4", "Silber", "52"),
+				item("5", "Trekking 5.4", "silber", "56"),
+			},
+			settings: Settings{Default: Config{SplitBy: []Axis{AxisColor}, Options: []Axis{AxisFrameSize}}},
+			want:     []string{"Trekking 5.4 schwarz [Rahmenhöhe] 1=52 2=56 3=60", "Trekking 5.4 Silber [Rahmenhöhe] 4=52 5=56"},
+		},
+		{
+			name: "same option value in two spellings is still a duplicate",
+			items: []connector.SupplierItem{
+				item("1", "Trekking 5.4", "Schwarz", "52"), item("2", "Trekking 5.4", "schwarz", "52"),
+			},
+			settings:   Settings{Default: DefaultConfig},
+			want:       []string{"Trekking 5.4 [Farbe,Rahmenhöhe] 1=Schwarz/52 2=Schwarz/52"},
+			wantIssues: []string{"nicht unterscheidbar"},
+		},
+		{
 			name:     "split by color",
 			items:    trekking,
 			settings: Settings{Default: Config{SplitBy: []Axis{AxisColor}, Options: DefaultConfig.Options}},
