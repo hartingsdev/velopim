@@ -1,6 +1,6 @@
 # 18. Preisänderungen immer zur Freigabe, Senkungen betragsgleich
 
-**Status:** Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt
+**Status:** Angenommen (Vorgabe des Betreibers), noch nicht umgesetzt. Ergänzt durch [26](0026-price-follow-rules.md): Regeln dürfen die Übernahme automatisch machen.
 
 ## Kontext
 Vorgabe des Betreibers: Preise dürfen nie automatisch geändert werden. Senkt Hartje den Preis um 5 €, soll der eigene Preis auch um 5 € sinken. Auf Nachfrage: gemeint ist der Einkaufspreis; vorerst nur als Vorschlag, später sollen Vorschlag und automatische Übernahme möglich sein.

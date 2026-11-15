@@ -101,6 +101,9 @@ type Product struct {
 	Status          string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	ModelKey        string
+	SplitBy         []byte
+	SplitValues     []byte
 }
 
 type RawRecord struct {

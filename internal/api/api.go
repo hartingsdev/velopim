@@ -202,7 +202,7 @@ func (s *server) decideTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	err = tasks.Decide(r.Context(), s.pool, id, d.Approve, s.actor, d.Note)
+	err = tasks.Decide(r.Context(), s.pool, id, d.Approve, s.actor, d.Note, nil)
 	if errors.Is(err, tasks.ErrNotOpen) {
 		writeError(w, http.StatusConflict, "task is not open")
 		return

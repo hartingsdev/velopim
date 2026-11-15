@@ -34,9 +34,10 @@ func (q *Queries) CloseOpenTask(ctx context.Context, arg CloseOpenTaskParams) (*
 	return action_id, err
 }
 
-const decidePendingAction = `-- name: DecidePendingAction :execrows
+const decidePendingAction = `-- name: DecidePendingAction :one
 UPDATE action SET status = $2, decided_at = now(), decided_by = $3, decision_note = $4
 WHERE id = $1 AND status = 'pending_approval'
+RETURNING type, model_key
 `
 
 type DecidePendingActionParams struct {
@@ -46,15 +47,19 @@ type DecidePendingActionParams struct {
 	DecisionNote *string
 }
 
-func (q *Queries) DecidePendingAction(ctx context.Context, arg DecidePendingActionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, decidePendingAction,
+type DecidePendingActionRow struct {
+	Type     string
+	ModelKey string
+}
+
+func (q *Queries) DecidePendingAction(ctx context.Context, arg DecidePendingActionParams) (DecidePendingActionRow, error) {
+	row := q.db.QueryRow(ctx, decidePendingAction,
 		arg.ID,
 		arg.Status,
 		arg.DecidedBy,
 		arg.DecisionNote,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i DecidePendingActionRow
+	err := row.Scan(&i.Type, &i.ModelKey)
+	return i, err
 }

@@ -35,6 +35,15 @@ func (a Axis) Label() string {
 	return strings.TrimPrefix(string(a), attributePrefix)
 }
 
+// Valid reports whether the axis is one a product can be cut by.
+func (a Axis) Valid() bool {
+	if a == AxisColor || a == AxisFrameSize {
+		return true
+	}
+	key, ok := strings.CutPrefix(string(a), attributePrefix)
+	return ok && key != ""
+}
+
 func (a Axis) value(it connector.SupplierItem) string {
 	switch a {
 	case AxisColor:
@@ -98,8 +107,8 @@ func (s Settings) configFor(k ModelKey) Config {
 
 // AxisValue is one axis with the value a product was split off for.
 type AxisValue struct {
-	Axis  Axis
-	Value string
+	Axis  Axis   `json:"axis"`
+	Value string `json:"value"`
 }
 
 // Product is one proposed product with its variants.
@@ -115,6 +124,9 @@ type Product struct {
 	Variants    []Variant
 	// Issues lists what a person has to fix before this can go to Shopify.
 	Issues []string
+	// Blocked is set when the product cannot be created as cut: variants
+	// that cannot be told apart, or more options than Shopify allows.
+	Blocked bool
 }
 
 // Variant is one supplier item as a variant of a product.
@@ -188,6 +200,7 @@ func groupModel(model ModelKey, items []connector.SupplierItem, cfg Config) []Pr
 		}
 		if len(p.OptionAxes) > MaxOptions {
 			p.Issues = append(p.Issues, fmt.Sprintf("%d Optionen, Shopify erlaubt %d", len(p.OptionAxes), MaxOptions))
+			p.Blocked = true
 		}
 
 		seen := map[string]string{}
@@ -213,6 +226,7 @@ func groupModel(model ModelKey, items []connector.SupplierItem, cfg Config) []Pr
 			if other, dup := seen[combo]; dup {
 				p.Issues = append(p.Issues, fmt.Sprintf("Artikel %s und %s sind nicht unterscheidbar (%s)",
 					other, v.SKU, describe(p.OptionNames, v.OptionValues)))
+				p.Blocked = true
 				continue
 			}
 			seen[combo] = v.SKU

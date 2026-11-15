@@ -52,21 +52,26 @@ func (q *Queries) GetSource(ctx context.Context, id string) (GetSourceRow, error
 }
 
 const listActionItems = `-- name: ListActionItems :many
-SELECT ai.action_id, s.source_id, s.sku, s.brand, s.name, s.model_year, s.color, s.frame_size
+SELECT ai.action_id, s.source_id, s.sku, s.brand, s.name, s.model_year, s.category, s.color, s.frame_size,
+       s.cost_cents, s.rrp_cents, s.attributes
 FROM action_item ai JOIN supplier_item s ON s.id = ai.supplier_item_id
 WHERE ai.action_id = ANY($1::bigint[])
 ORDER BY ai.action_id, s.color, s.frame_size, s.sku
 `
 
 type ListActionItemsRow struct {
-	ActionID  int64
-	SourceID  string
-	Sku       string
-	Brand     string
-	Name      string
-	ModelYear *int32
-	Color     string
-	FrameSize string
+	ActionID   int64
+	SourceID   string
+	Sku        string
+	Brand      string
+	Name       string
+	ModelYear  *int32
+	Category   string
+	Color      string
+	FrameSize  string
+	CostCents  *int64
+	RrpCents   *int64
+	Attributes []byte
 }
 
 func (q *Queries) ListActionItems(ctx context.Context, actionIds []int64) ([]ListActionItemsRow, error) {
@@ -85,8 +90,12 @@ func (q *Queries) ListActionItems(ctx context.Context, actionIds []int64) ([]Lis
 			&i.Brand,
 			&i.Name,
 			&i.ModelYear,
+			&i.Category,
 			&i.Color,
 			&i.FrameSize,
+			&i.CostCents,
+			&i.RrpCents,
+			&i.Attributes,
 		); err != nil {
 			return nil, err
 		}
@@ -101,7 +110,7 @@ func (q *Queries) ListActionItems(ctx context.Context, actionIds []int64) ([]Lis
 const listClosedTasks = `-- name: ListClosedTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t
@@ -131,6 +140,7 @@ type ListClosedTasksRow struct {
 	OldValue       *string
 	NewValue       *string
 	DecisionReason *string
+	ModelKey       *string
 	RuleName       *string
 	SourceID       *string
 	Sku            *string
@@ -168,6 +178,7 @@ func (q *Queries) ListClosedTasks(ctx context.Context, limit int32) ([]ListClose
 			&i.OldValue,
 			&i.NewValue,
 			&i.DecisionReason,
+			&i.ModelKey,
 			&i.RuleName,
 			&i.SourceID,
 			&i.Sku,
@@ -242,7 +253,7 @@ func (q *Queries) ListImportRuns(ctx context.Context, limit int32) ([]ListImport
 const listOpenTasks = `-- name: ListOpenTasks :many
 SELECT t.id, t.kind, t.title, t.detail, t.status, t.priority, t.created_at, t.closed_at, t.closed_by, t.note,
        t.import_run_id, t.action_id,
-       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason,
+       a.type AS action_type, a.field AS action_field, a.old_value, a.new_value, a.decision_reason, a.model_key,
        r.name AS rule_name,
        s.source_id, s.sku, s.brand, s.name AS item_name, s.model_year, s.color, s.frame_size
 FROM task t
@@ -272,6 +283,7 @@ type ListOpenTasksRow struct {
 	OldValue       *string
 	NewValue       *string
 	DecisionReason *string
+	ModelKey       *string
 	RuleName       *string
 	SourceID       *string
 	Sku            *string
@@ -309,6 +321,7 @@ func (q *Queries) ListOpenTasks(ctx context.Context, limit int32) ([]ListOpenTas
 			&i.OldValue,
 			&i.NewValue,
 			&i.DecisionReason,
+			&i.ModelKey,
 			&i.RuleName,
 			&i.SourceID,
 			&i.Sku,

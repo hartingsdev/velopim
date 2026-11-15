@@ -211,7 +211,7 @@ type runState struct {
 	runID      int64
 	sourceID   string
 	rules      []rules.Rule
-	priceRules []pricingRule
+	priceRules []pricing.Rule
 	res        *Result
 	// newItems collects the articles first seen in this run; they are
 	// decided per model once all articles are read.
@@ -454,7 +454,7 @@ func (s *runState) decide(p actions.Proposal, itemID int64, item connector.Suppl
 // change and the margin of the new price. Without a pricing rule for the
 // article there are no facts, so conditions on them do not match.
 func (s *runState) priceFacts(prev, cur connector.SupplierItem) map[rules.Fact]float64 {
-	cfg, ok := pickPricing(s.priceRules, cur.Brand, cur.Category)
+	cfg, ok := pricing.Pick(s.priceRules, cur.Brand, cur.Category)
 	if !ok {
 		return map[rules.Fact]float64{}
 	}
@@ -504,33 +504,6 @@ func taskTitle(p actions.Proposal, item connector.SupplierItem) (string, int) {
 	return "Änderung prüfen (" + p.Field + "): " + name, 3
 }
 
-type pricingRule struct {
-	brand, category string
-	cfg             pricing.Config
-}
-
-// pickPricing returns the most specific pricing rule: brand and category,
-// then brand, then category, then the global rule.
-func pickPricing(rs []pricingRule, brand, category string) (pricing.Config, bool) {
-	best, bestScore := pricing.Config{}, -1
-	for _, r := range rs {
-		if r.brand != "" && r.brand != brand || r.category != "" && r.category != category {
-			continue
-		}
-		score := 0
-		if r.brand != "" {
-			score += 2
-		}
-		if r.category != "" {
-			score++
-		}
-		if score > bestScore {
-			best, bestScore = r.cfg, score
-		}
-	}
-	return best, bestScore >= 0
-}
-
 func loadRules(ctx context.Context, q *db.Queries) ([]rules.Rule, error) {
 	rows, err := q.ListEnabledRules(ctx)
 	if err != nil {
@@ -551,15 +524,15 @@ func loadRules(ctx context.Context, q *db.Queries) ([]rules.Rule, error) {
 	return out, nil
 }
 
-func loadPricingRules(ctx context.Context, q *db.Queries) ([]pricingRule, error) {
+func loadPricingRules(ctx context.Context, q *db.Queries) ([]pricing.Rule, error) {
 	rows, err := q.ListPricingRules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]pricingRule, 0, len(rows))
+	out := make([]pricing.Rule, 0, len(rows))
 	for _, row := range rows {
-		r := pricingRule{brand: row.ScopeBrand, category: row.ScopeCategory}
-		if err := json.Unmarshal(row.Config, &r.cfg); err != nil {
+		r := pricing.Rule{Brand: row.ScopeBrand, Category: row.ScopeCategory}
+		if err := json.Unmarshal(row.Config, &r.Config); err != nil {
 			return nil, fmt.Errorf("importer: pricing rule: %w", err)
 		}
 		out = append(out, r)

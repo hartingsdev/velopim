@@ -1,0 +1,66 @@
+-- name: ListActionSupplierItems :many
+SELECT s.id, s.source_id, s.sku, s.ean, s.brand, s.name, s.model_year, s.category, s.color, s.frame_size,
+       s.description, s.image_urls, s.cost_cents, s.rrp_cents, s.attributes, s.active
+FROM action_item ai JOIN supplier_item s ON s.id = ai.supplier_item_id
+WHERE ai.action_id = $1
+ORDER BY s.sku;
+
+-- name: ListProductsOfModel :many
+SELECT id, split_by, split_values FROM product WHERE model_key = $1 ORDER BY id;
+
+-- name: InsertProduct :one
+INSERT INTO product (brand, name, model_year, category, description_html, image_urls, option_names,
+    model_key, split_by, split_values)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id;
+
+-- name: SupplierItemHasVariant :one
+SELECT EXISTS (SELECT 1 FROM variant_supplier_item WHERE supplier_item_id = $1);
+
+-- name: NextVariantNumber :one
+SELECT nextval('variant_sku_seq');
+
+-- name: InsertVariant :one
+INSERT INTO variant (product_id, sku, ean, option_values, price_cents, compare_at_cents)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id;
+
+-- name: LinkVariantSupplierItem :exec
+INSERT INTO variant_supplier_item (variant_id, supplier_item_id, preferred) VALUES ($1, $2, true);
+
+-- name: InsertCatalogFieldChange :exec
+INSERT INTO field_change (entity_type, entity_id, field, old_value, new_value, origin, action_id, actor, reason)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+-- name: ListProducts :many
+SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
+       count(v.id) AS variant_count,
+       min(v.price_cents) AS min_price_cents, max(v.price_cents) AS max_price_cents,
+       count(v.id) FILTER (WHERE v.price_cents IS NULL) AS unpriced_count
+FROM product p LEFT JOIN variant v ON v.product_id = p.id
+GROUP BY p.id
+ORDER BY p.brand, p.name, p.model_year, p.id
+LIMIT $1;
+
+-- name: ListVariantsOfProducts :many
+SELECT v.id, v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
+       s.sku AS supplier_sku, s.source_id, s.cost_cents, s.rrp_cents, s.availability_status
+FROM variant v
+LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = ANY(sqlc.arg(product_ids)::bigint[])
+ORDER BY v.product_id, v.option_values::text, v.sku;
+
+-- name: ListAllPricingRules :many
+SELECT id, scope_brand, scope_category, config FROM pricing_rule ORDER BY scope_brand, scope_category;
+
+-- name: UpsertPricingRule :one
+INSERT INTO pricing_rule (scope_brand, scope_category, config) VALUES ($1, $2, $3)
+ON CONFLICT (scope_brand, scope_category) DO UPDATE SET config = EXCLUDED.config
+RETURNING id;
+
+-- name: DeletePricingRule :execrows
+DELETE FROM pricing_rule WHERE id = $1;
+
+-- name: ListModelSplits :many
+SELECT DISTINCT model_key, split_by FROM product WHERE model_key = ANY(sqlc.arg(model_keys)::text[]);

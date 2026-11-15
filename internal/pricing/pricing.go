@@ -125,3 +125,38 @@ func round(cents float64, r Rounding) (int64, error) {
 	}
 	return 0, errors.New("pricing: unknown rounding " + string(r))
 }
+
+// Rule is a calculation for a scope; empty brand or category means "all".
+type Rule struct {
+	Brand    string
+	Category string
+	Config   Config
+}
+
+// Pick returns the most specific rule's configuration: brand and category,
+// then brand, then category, then the global rule.
+func Pick(rs []Rule, brand, category string) (Config, bool) {
+	best, bestScore := Config{}, -1
+	for _, r := range rs {
+		if r.Brand != "" && r.Brand != brand || r.Category != "" && r.Category != category {
+			continue
+		}
+		score := 0
+		if r.Brand != "" {
+			score += 2
+		}
+		if r.Category != "" {
+			score++
+		}
+		if score > bestScore {
+			best, bestScore = r.Config, score
+		}
+	}
+	return best, bestScore >= 0
+}
+
+// Validate reports whether the configuration can calculate a price.
+func (c Config) Validate() error {
+	_, err := Calculate(10000, 0, c)
+	return err
+}
