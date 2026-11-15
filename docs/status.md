@@ -8,18 +8,18 @@
 | Verfügbarkeitsmodell mit Mapping | `availability` |
 | CSV-Konnektor | `connector/csvfile` |
 | Änderungserkennung | `actions` |
-| Import-Pipeline mit Rohdatenablage, Aktionen und Tasks | `importer` |
+| Import-Pipeline mit Rohdatenablage, Aktionen und Tasks; neue Artikel als ein Task je Modell | `importer` |
 | Task-Entscheidung | `tasks` |
 | Gruppierung zu Produkten mit Trennmerkmalen (reine Funktion, nicht angebunden) | `catalog` |
 | Shopify-Projektion und Diff | `shopify` |
 | HTTP-API für Tasks und Importläufe | `api` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
-| Oberfläche: offene Aufgaben mit Freigeben/Ablehnen, erledigte Aufgaben, Importläufe | `web` |
+| Oberfläche: offene Aufgaben mit Freigeben/Ablehnen und Variantenliste je Modell, erledigte Aufgaben, Importläufe | `web` |
 
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
-- Eigener Katalog in der Datenbank: Produkte und Varianten aus der Gruppierung anlegen, Trennmerkmale speichern
+- Eigener Katalog in der Datenbank: bei Freigabe eines Modells Produkte und Varianten aus der Gruppierung anlegen, Trennmerkmale im Task wählen und speichern
 - Übernahme freigegebener Aktionen in den Katalog (eine Freigabe wird bisher nur protokolliert)
 - Betragsgleiche Preissenkung als Vorschlag
 - Nutzungsrichtlinie in der Pipeline

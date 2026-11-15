@@ -7,12 +7,12 @@
 - **Lieferzeit im Theme:** Namespace und Key des Metafelds.
 - **Kalkulation:** Faktor, Rundung und UVP als Obergrenze sind nicht festgelegt.
 - **Preisregel ([18](decisions/0018-price-changes-need-approval.md)):** Was passiert bei EK-Erhöhungen? Wird der Betrag eins zu eins vom Ladenpreis abgezogen (Annahme bisher) oder brutto umgerechnet?
-- **Neuprodukte:** Soll ein neues Modell als ein Task zur Freigabe kommen statt als ein Task je Artikel?
 - **Schutzregeln ([13](decisions/0013-guard-rules.md)):** vom Betreiber nicht ausdrücklich bestätigt.
 - **Vorläufige Entscheidungen ohne Betreiber:** handgepflegte API-Typen ([19](decisions/0019-handwritten-api-types.md)), kein Login ([20](decisions/0020-no-login-localhost.md)).
 
 ## Bekannte Schwächen
-- **Task-Flut beim Erstimport:** Jeder neue Artikel wird ein eigener Task. Die Taskliste zeigt höchstens 200 Einträge; Sammelfreigabe, Filter oder eine Regel für Neuprodukte fehlen.
+- **Viele Tasks beim Erstimport:** Neue Artikel kommen je Modell als ein Task ([22](decisions/0022-new-model-one-task.md)), ein ganzer Katalog ergibt trotzdem hunderte. Die Taskliste zeigt höchstens 200 Einträge; Filter und Sammelfreigabe fehlen.
+- **Modellerkennung:** exakt gleiche Marke, Bezeichnung und Modelljahr. Steckt die Farbe in der Bezeichnung, zerfällt ein Modell.
 - **Doppelte Sammel-Tasks:** Jeder Import mit Datenproblemen legt einen neuen Task an, auch bei denselben Problemen wie im Lauf davor.
 - **Freigaben ohne Wirkung:** Der eigene Katalog fehlt, eine Freigabe wird nur protokolliert.
 - **Angehaltener Import:** Es gibt noch keinen Weg, einen angehaltenen Lauf zu bestätigen.

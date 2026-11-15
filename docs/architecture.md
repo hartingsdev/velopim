@@ -43,7 +43,7 @@ Die Fachlogik (`rules`, `pricing`, `availability`, `actions`, `catalog`, `shopif
 ## Datenfluss
 1. **Holen:** Ein Konnektor liest die Lieferung. Die Originaldatei wird unverändert mit Hash abgelegt.
 2. **Normalisieren:** Jeder Datensatz wird ein `supplier_item`. Eine neue Rohversion entsteht nur, wenn sich der Inhalt geändert hat. Die Verfügbarkeit wird über das Mapping der Quelle bestimmt.
-3. **Vergleichen:** Unterschiede zum vorigen Stand werden Aktionen. Die Regel-Engine entscheidet: automatisch oder Freigabe. Eine Freigabe wird ein Task.
+3. **Vergleichen:** Unterschiede zum vorigen Stand werden Aktionen. Die Regel-Engine entscheidet: automatisch oder Freigabe. Eine Freigabe wird ein Task. Neue Artikel werden je Modell zu einer Aktion zusammengefasst ([22](decisions/0022-new-model-one-task.md)).
 4. **Übernehmen:** Freigegebene und automatische Aktionen ändern den eigenen Katalog und schreiben `field_change`. *Noch nicht gebaut.*
 5. **Projizieren:** Aus dem Katalog wird die Shopify-Projektion berechnet und mit dem letzten Sync-Stand verglichen.
 6. **Synchronisieren:** Unterschiede gehen als Jobs an Shopify (idempotent, Rate Limits, Wiederholungen). Fehler erzeugen einen Task. *Noch nicht gebaut.*
@@ -60,7 +60,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | Methode und Pfad | Zweck |
 |---|---|
 | `GET /api/health` | Lebenszeichen |
-| `GET /api/tasks?status=open\|closed` | Taskliste (höchstens 200) mit Aktion, Artikel und Zählern |
+| `GET /api/tasks?status=open\|closed` | Taskliste (höchstens 200) mit Aktion, Artikel, Varianten eines Modells und Zählern |
 | `POST /api/tasks/{id}/decision` | `{"approve": bool, "note": string}`; 409, wenn der Task nicht mehr offen ist |
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
 

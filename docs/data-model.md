@@ -23,7 +23,8 @@ Der Katalog ist im Schema angelegt, wird aber noch nicht befüllt.
 - **`rule`:** Regel der Regel-Engine: Geltungsbereich (Quelle, Marke, Kategorie), Aktionstyp, Bedingungen, Ergebnis (`auto` oder `approval`), Schutzregel ja/nein ([10](decisions/0010-structured-rules.md), [13](decisions/0013-guard-rules.md)).
 
 ## Aktionen und Tasks
-- **`action`:** ein Änderungsvorschlag: Typ, Feld, alter und neuer Wert, die Fakten, auf denen die Regeln entschieden haben, die greifende Regel und der Grund. Status: `pending_approval`, `auto_applied`, `approved`, `rejected`, `superseded`.
+- **`action`:** ein Änderungsvorschlag: Typ, Feld, alter und neuer Wert, die Fakten, auf denen die Regeln entschieden haben, die greifende Regel und der Grund. Status: `pending_approval`, `auto_applied`, `approved`, `rejected`, `superseded`. Eine Aktion `new_product` gilt für ein ganzes Modell (`model_key`) statt für einen einzelnen Artikel ([22](decisions/0022-new-model-one-task.md)).
+- **`action_item`:** die Lieferantenartikel, die eine Modell-Aktion umfasst.
 - **`task`:** eine Aufgabe für den Betreiber: Art, Titel, Priorität (1 = hoch), Verweis auf Aktion, Artikel oder Importlauf. Status: `open`, `done`, `dismissed`. Das Schließen eines Freigabe-Tasks entscheidet die Aktion dahinter. `external_system` und `external_ref` sind für spätere Task-Adapter vorgesehen.
 
 ## Herkunft

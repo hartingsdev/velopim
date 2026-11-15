@@ -69,6 +69,20 @@ type ModelKey struct {
 	ModelYear int
 }
 
+// ModelOf returns the model a supplier item belongs to.
+func ModelOf(it connector.SupplierItem) ModelKey {
+	return ModelKey{Brand: strings.TrimSpace(it.Brand), Name: strings.TrimSpace(it.Name), ModelYear: it.ModelYear}
+}
+
+// Title is the model as shown to a person, e.g. "Beispielrad Trekking 5.4 (2027)".
+func (k ModelKey) Title() string {
+	t := strings.TrimSpace(k.Brand + " " + k.Name)
+	if k.ModelYear != 0 {
+		t += fmt.Sprintf(" (%d)", k.ModelYear)
+	}
+	return t
+}
+
 // Settings hold the default cut and the exceptions for single models.
 type Settings struct {
 	Default  Config
@@ -114,7 +128,7 @@ type Variant struct {
 func Group(items []connector.SupplierItem, s Settings) []Product {
 	byModel := map[ModelKey][]connector.SupplierItem{}
 	for _, it := range items {
-		k := ModelKey{Brand: strings.TrimSpace(it.Brand), Name: strings.TrimSpace(it.Name), ModelYear: it.ModelYear}
+		k := ModelOf(it)
 		byModel[k] = append(byModel[k], it)
 	}
 	var out []Product

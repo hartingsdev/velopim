@@ -91,8 +91,8 @@ func (q *Queries) GetAvailabilityMapping(ctx context.Context, id string) ([]byte
 
 const insertAction = `-- name: InsertAction :one
 INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, facts, rule_id,
-    decision_reason, import_run_id, decided_at, decided_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    decision_reason, import_run_id, decided_at, decided_by, model_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id
 `
 
@@ -109,6 +109,7 @@ type InsertActionParams struct {
 	ImportRunID    *int64
 	DecidedAt      *time.Time
 	DecidedBy      *string
+	ModelKey       string
 }
 
 func (q *Queries) InsertAction(ctx context.Context, arg InsertActionParams) (int64, error) {
@@ -125,10 +126,26 @@ func (q *Queries) InsertAction(ctx context.Context, arg InsertActionParams) (int
 		arg.ImportRunID,
 		arg.DecidedAt,
 		arg.DecidedBy,
+		arg.ModelKey,
 	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertActionItems = `-- name: InsertActionItems :exec
+INSERT INTO action_item (action_id, supplier_item_id)
+SELECT $1::bigint, unnest($2::bigint[])
+`
+
+type InsertActionItemsParams struct {
+	ActionID int64
+	ItemIds  []int64
+}
+
+func (q *Queries) InsertActionItems(ctx context.Context, arg InsertActionItemsParams) error {
+	_, err := q.db.Exec(ctx, insertActionItems, arg.ActionID, arg.ItemIds)
+	return err
 }
 
 const insertImportFieldChange = `-- name: InsertImportFieldChange :exec
@@ -264,6 +281,32 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 		arg.ImportRunID,
 	)
 	return err
+}
+
+const listActionItemIDs = `-- name: ListActionItemIDs :many
+SELECT DISTINCT supplier_item_id FROM action_item
+WHERE action_id = ANY($1::bigint[])
+ORDER BY supplier_item_id
+`
+
+func (q *Queries) ListActionItemIDs(ctx context.Context, actionIds []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listActionItemIDs, actionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var supplier_item_id int64
+		if err := rows.Scan(&supplier_item_id); err != nil {
+			return nil, err
+		}
+		items = append(items, supplier_item_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listEnabledRules = `-- name: ListEnabledRules :many
@@ -415,6 +458,20 @@ func (q *Queries) ListSupplierItems(ctx context.Context, sourceID string) ([]Lis
 	return items, nil
 }
 
+const modelWasAccepted = `-- name: ModelWasAccepted :one
+SELECT EXISTS (
+    SELECT 1 FROM action
+    WHERE type = 'new_product' AND model_key = $1 AND status IN ('approved', 'auto_applied')
+)
+`
+
+func (q *Queries) ModelWasAccepted(ctx context.Context, modelKey string) (bool, error) {
+	row := q.db.QueryRow(ctx, modelWasAccepted, modelKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const supersedePendingActions = `-- name: SupersedePendingActions :many
 UPDATE action SET status = 'superseded', decided_at = now(), decided_by = 'system'
 WHERE supplier_item_id = $1 AND type = $2 AND field = $3 AND status = 'pending_approval'
@@ -429,6 +486,32 @@ type SupersedePendingActionsParams struct {
 
 func (q *Queries) SupersedePendingActions(ctx context.Context, arg SupersedePendingActionsParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, supersedePendingActions, arg.SupplierItemID, arg.Type, arg.Field)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const supersedePendingModelActions = `-- name: SupersedePendingModelActions :many
+UPDATE action SET status = 'superseded', decided_at = now(), decided_by = 'system'
+WHERE type = 'new_product' AND model_key = $1 AND status = 'pending_approval'
+RETURNING id
+`
+
+func (q *Queries) SupersedePendingModelActions(ctx context.Context, modelKey string) ([]int64, error) {
+	rows, err := q.db.Query(ctx, supersedePendingModelActions, modelKey)
 	if err != nil {
 		return nil, err
 	}

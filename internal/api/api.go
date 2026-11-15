@@ -38,6 +38,8 @@ type Task struct {
 	ImportRunID *int64      `json:"import_run_id"`
 	Action      *TaskAction `json:"action"`
 	Item        *TaskItem   `json:"item"`
+	// Variants lists the supplier items of a new-model task.
+	Variants []TaskItem `json:"variants"`
 }
 
 // TaskAction is the proposed change a task asks to approve.
@@ -137,8 +139,31 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := TaskList{Tasks: make([]Task, 0, len(rows)), Open: counts.Open, Closed: counts.Closed}
+	var actionIDs []int64
 	for _, row := range rows {
 		out.Tasks = append(out.Tasks, taskFromRow(row))
+		if row.ActionID != nil && row.Sku == nil {
+			actionIDs = append(actionIDs, *row.ActionID)
+		}
+	}
+	if len(actionIDs) > 0 {
+		items, err := q.ListActionItems(r.Context(), actionIDs)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		byAction := map[int64][]TaskItem{}
+		for _, it := range items {
+			byAction[it.ActionID] = append(byAction[it.ActionID], TaskItem{SourceID: it.SourceID, SKU: it.Sku,
+				Brand: it.Brand, Name: it.Name, ModelYear: it.ModelYear, Color: it.Color, FrameSize: it.FrameSize})
+		}
+		for i, row := range rows {
+			if row.ActionID != nil {
+				if v := byAction[*row.ActionID]; v != nil {
+					out.Tasks[i].Variants = v
+				}
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -147,7 +172,7 @@ func taskFromRow(row db.ListOpenTasksRow) Task {
 	t := Task{
 		ID: row.ID, Kind: row.Kind, Title: row.Title, Detail: row.Detail, Status: row.Status,
 		Priority: int(row.Priority), CreatedAt: row.CreatedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy,
-		Note: row.Note, ImportRunID: row.ImportRunID,
+		Note: row.Note, ImportRunID: row.ImportRunID, Variants: []TaskItem{},
 	}
 	if row.ActionType != nil {
 		t.Action = &TaskAction{Type: *row.ActionType, Field: str(row.ActionField), Old: str(row.OldValue),

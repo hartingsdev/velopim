@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, decideTask, type Task, type TaskList } from "./api";
+import { ApiError, decideTask, type Task, type TaskItem, type TaskList } from "./api";
 import { fieldLabel, formatDate, formatValue, priceDelta, priorityLabel, reasonLabel } from "./format";
 
 interface Props {
@@ -66,6 +66,7 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
       </div>
       {itemFacts.length > 0 && <p className="item">{itemFacts.join(" · ")}</p>}
       {task.detail && <p>{task.detail}</p>}
+      {task.variants.length > 0 && <Variants variants={task.variants} />}
       {task.action && <Change action={task.action} />}
 
       {open ? (
@@ -126,5 +127,33 @@ function Change({ action }: { action: NonNullable<Task["action"]> }) {
         {action.rule && <> (Regel: {action.rule})</>}
       </p>
     </div>
+  );
+}
+
+function Variants({ variants }: { variants: TaskItem[] }) {
+  return (
+    <details className="variants" open={variants.length <= 12}>
+      <summary>
+        {variants.length === 1 ? "1 Variante" : `${variants.length} Varianten`} · {variants[0].source_id}
+      </summary>
+      <table>
+        <thead>
+          <tr>
+            <th>Artikelnr.</th>
+            <th>Farbe</th>
+            <th>Rahmenhöhe</th>
+          </tr>
+        </thead>
+        <tbody>
+          {variants.map((v) => (
+            <tr key={v.sku}>
+              <td>{v.sku}</td>
+              <td>{v.color || "–"}</td>
+              <td>{v.frame_size || "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
   );
 }

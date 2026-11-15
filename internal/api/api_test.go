@@ -137,6 +137,44 @@ func TestTaskListAndDecision(t *testing.T) {
 	}
 }
 
+func TestModelTaskListsItsVariants(t *testing.T) {
+	pool := dbtest.New(t)
+	seed(t, pool)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO supplier_item (source_id, sku, brand, name, model_year, color, frame_size) VALUES
+		  ('example', '200-002', 'Beispielrad', 'City 3', 2027, 'rot', '54'),
+		  ('example', '200-001', 'Beispielrad', 'City 3', 2027, 'rot', '50'),
+		  ('example', '200-003', 'Beispielrad', 'City 3', 2027, 'blau', '50');
+		INSERT INTO action (type, status, new_value, decision_reason, model_key)
+		  VALUES ('new_product', 'pending_approval', 'Beispielrad City 3 (2027)', 'no rule matched, approval by default', 'k');
+		INSERT INTO action_item (action_id, supplier_item_id) SELECT 2, id FROM supplier_item WHERE name = 'City 3';
+		INSERT INTO task (kind, title, priority, action_id) VALUES ('approve_action', 'Neues Modell prüfen', 2, 2);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	list := getTasks(t, New(pool, "tester"), "open")
+	var skus []string
+	for _, task := range list.Tasks {
+		if task.Variants == nil {
+			t.Errorf("task %d: variants must be an empty list, not null", task.ID)
+		}
+		if task.Title == "Neues Modell prüfen" {
+			if task.Item != nil || task.Action == nil || task.Action.New != "Beispielrad City 3 (2027)" {
+				t.Errorf("model task: %+v", task)
+			}
+			for _, v := range task.Variants {
+				skus = append(skus, v.SKU)
+			}
+		} else if len(task.Variants) != 0 {
+			t.Errorf("task %d has variants: %+v", task.ID, task.Variants)
+		}
+	}
+	// Sorted by color, then frame size.
+	if got := strings.Join(skus, ","); got != "200-003,200-001,200-002" {
+		t.Errorf("variants = %s", got)
+	}
+}
+
 func TestImportRunsAndFallbacks(t *testing.T) {
 	pool := dbtest.New(t)
 	seed(t, pool)

@@ -26,6 +26,12 @@ type Action struct {
 	DecidedAt      *time.Time
 	DecidedBy      *string
 	DecisionNote   *string
+	ModelKey       string
+}
+
+type ActionItem struct {
+	ActionID       int64
+	SupplierItemID int64
 }
 
 type FieldChange struct {

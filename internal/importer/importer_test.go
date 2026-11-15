@@ -76,19 +76,22 @@ func TestImportPipeline(t *testing.T) {
 	conn := newConnector(t)
 	opt := Options{RawDir: t.TempDir(), MaxDropPct: 50}
 
-	// First delivery: everything is new and needs approval.
+	// First delivery: three new articles of one model, so one approval.
 	res, err := Run(ctx, pool, conn, file(row1, row2, row3), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != "done" || res.Records != 3 || res.New != 3 || res.PendingApproval != 3 || res.AutoApplied != 0 || res.Issues != 1 {
+	if res.Status != "done" || res.Records != 3 || res.New != 3 || res.PendingApproval != 1 || res.AutoApplied != 0 || res.Issues != 1 {
 		t.Fatalf("first run: %+v", res)
 	}
 	if n := count(t, pool, "raw_record"); n != 3 {
 		t.Errorf("raw records = %d, want 3", n)
 	}
-	if n := count(t, pool, "task WHERE kind = 'approve_action' AND status = 'open'"); n != 3 {
-		t.Errorf("approval tasks = %d, want 3", n)
+	if n := count(t, pool, "task WHERE kind = 'approve_action' AND status = 'open'"); n != 1 {
+		t.Errorf("approval tasks = %d, want 1 for the model", n)
+	}
+	if n := count(t, pool, "action_item"); n != 3 {
+		t.Errorf("articles on the model action = %d, want 3", n)
 	}
 	if n := count(t, pool, "task WHERE kind = 'data_issue'"); n != 1 {
 		t.Errorf("data issue tasks = %d, want 1 (missing EAN)", n)
@@ -213,5 +216,98 @@ func TestImportUnknownSourceFails(t *testing.T) {
 	}
 	if n := count(t, pool, "import_run"); n != 0 {
 		t.Errorf("failed run left %d import runs behind", n)
+	}
+}
+
+func TestNewModelsGetOneTaskEach(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	conn := newConnector(t)
+	opt := Options{RawDir: t.TempDir()}
+	city := "200-001;;Beispielrad;City 3;2027;rot;50;500,00;899,00;1;"
+
+	openTask := func(model string) (id int64, title string, items int) {
+		t.Helper()
+		err := pool.QueryRow(ctx, `
+			SELECT t.id, t.title, (SELECT count(*) FROM action_item ai WHERE ai.action_id = a.id)
+			FROM task t JOIN action a ON a.id = t.action_id
+			WHERE a.type = 'new_product' AND t.status = 'open' AND a.new_value = $1`, model).Scan(&id, &title, &items)
+		if err != nil {
+			t.Fatalf("open task for %s: %v", model, err)
+		}
+		return id, title, items
+	}
+
+	// Two articles of one model and one of another: two tasks.
+	res, err := Run(ctx, pool, conn, file(row1, row2, city), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.New != 3 || res.PendingApproval != 2 {
+		t.Fatalf("first run: %+v", res)
+	}
+	if _, title, items := openTask("Beispielrad Trekking 5.4 (2027)"); items != 2 || title != "Neues Modell prüfen: Beispielrad Trekking 5.4 (2027), 2 Varianten" {
+		t.Errorf("trekking task: %q with %d articles", title, items)
+	}
+	if _, title, items := openTask("Beispielrad City 3 (2027)"); items != 1 || title != "Neues Modell prüfen: Beispielrad City 3 (2027), 1 Variante" {
+		t.Errorf("city task: %q with %d articles", title, items)
+	}
+
+	// A further article of the undecided model joins its task instead of
+	// opening a second one.
+	if _, err := Run(ctx, pool, conn, file(row1, row2, row3, city), opt); err != nil {
+		t.Fatal(err)
+	}
+	taskID, title, items := openTask("Beispielrad Trekking 5.4 (2027)")
+	if items != 3 || title != "Neues Modell prüfen: Beispielrad Trekking 5.4 (2027), 3 Varianten" {
+		t.Errorf("after a further article: %q with %d articles", title, items)
+	}
+	if n := count(t, pool, "task t JOIN action a ON a.id = t.action_id WHERE a.type = 'new_product' AND t.status = 'open'"); n != 2 {
+		t.Errorf("open new-product tasks = %d, want 2", n)
+	}
+	if n := count(t, pool, "action WHERE type = 'new_product' AND status = 'superseded'"); n != 1 {
+		t.Errorf("superseded model actions = %d, want 1", n)
+	}
+
+	// Once the model is approved, a later article is a new variant.
+	if err := tasks.Decide(ctx, pool, taskID, true, "robert", ""); err != nil {
+		t.Fatal(err)
+	}
+	row4 := "100-004;;Beispielrad;Trekking 5.4;2027;silber;52;1.000,00;1.999,00;2;"
+	if _, err := Run(ctx, pool, conn, file(row1, row2, row3, row4, city), opt); err != nil {
+		t.Fatal(err)
+	}
+	if _, title, items := openTask("Beispielrad Trekking 5.4 (2027)"); items != 1 || title != "Neue Varianten prüfen: Beispielrad Trekking 5.4 (2027), 1 Variante" {
+		t.Errorf("after approval: %q with %d articles", title, items)
+	}
+
+	// The same model in another model year is a model of its own.
+	next := "100-101;;Beispielrad;Trekking 5.4;2028;schwarz;52;1.000,00;1.999,00;2;"
+	if _, err := Run(ctx, pool, conn, file(row1, row2, row3, row4, city, next), opt); err != nil {
+		t.Fatal(err)
+	}
+	if _, title, _ := openTask("Beispielrad Trekking 5.4 (2028)"); title != "Neues Modell prüfen: Beispielrad Trekking 5.4 (2028), 1 Variante" {
+		t.Errorf("next model year: %q", title)
+	}
+}
+
+func TestNewModelAutoRule(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO rule (name, action_type, scope_brand, outcome) VALUES ('brand is trusted', 'new_product', 'Beispielrad', 'auto')`); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(ctx, pool, newConnector(t), file(row1, row2), Options{RawDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AutoApplied != 1 || res.PendingApproval != 0 {
+		t.Fatalf("run: %+v", res)
+	}
+	if n := count(t, pool, "action a JOIN rule r ON r.id = a.rule_id WHERE a.status = 'auto_applied' AND r.name = 'brand is trusted'"); n != 1 {
+		t.Errorf("auto action with its rule missing")
+	}
+	if n := count(t, pool, "task WHERE kind = 'approve_action'"); n != 0 {
+		t.Errorf("auto-applied model must not create a task")
 	}
 }

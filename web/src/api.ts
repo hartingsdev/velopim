@@ -34,6 +34,8 @@ export interface Task {
   import_run_id: number | null;
   action: TaskAction | null;
   item: TaskItem | null;
+  /** Supplier items of a new-model task; empty otherwise. */
+  variants: TaskItem[];
 }
 
 export interface TaskList {

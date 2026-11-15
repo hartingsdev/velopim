@@ -58,10 +58,30 @@ WHERE action_id = ANY(sqlc.arg(action_ids)::bigint[]) AND status = 'open';
 
 -- name: InsertAction :one
 INSERT INTO action (type, status, supplier_item_id, field, old_value, new_value, facts, rule_id,
-    decision_reason, import_run_id, decided_at, decided_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    decision_reason, import_run_id, decided_at, decided_by, model_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id;
 
 -- name: InsertTask :exec
 INSERT INTO task (kind, title, detail, priority, action_id, supplier_item_id, import_run_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- name: SupersedePendingModelActions :many
+UPDATE action SET status = 'superseded', decided_at = now(), decided_by = 'system'
+WHERE type = 'new_product' AND model_key = $1 AND status = 'pending_approval'
+RETURNING id;
+
+-- name: ListActionItemIDs :many
+SELECT DISTINCT supplier_item_id FROM action_item
+WHERE action_id = ANY(sqlc.arg(action_ids)::bigint[])
+ORDER BY supplier_item_id;
+
+-- name: InsertActionItems :exec
+INSERT INTO action_item (action_id, supplier_item_id)
+SELECT sqlc.arg(action_id)::bigint, unnest(sqlc.arg(item_ids)::bigint[]);
+
+-- name: ModelWasAccepted :one
+SELECT EXISTS (
+    SELECT 1 FROM action
+    WHERE type = 'new_product' AND model_key = $1 AND status IN ('approved', 'auto_applied')
+);

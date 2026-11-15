@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"velopim/internal/actions"
 	"velopim/internal/availability"
+	"velopim/internal/catalog"
 	"velopim/internal/connector"
 	"velopim/internal/db"
 	"velopim/internal/pricing"
@@ -136,6 +138,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, conn connector.Connector, r io
 		}
 	}
 
+	if err := run.decideNewModels(); err != nil {
+		return Result{}, err
+	}
+
 	// Articles missing from the delivery.
 	var active, missing []string
 	for sku, p := range prev {
@@ -207,6 +213,125 @@ type runState struct {
 	rules      []rules.Rule
 	priceRules []pricingRule
 	res        *Result
+	// newItems collects the articles first seen in this run; they are
+	// decided per model once all articles are read.
+	newItems []newItem
+}
+
+type newItem struct {
+	id   int64
+	item connector.SupplierItem
+}
+
+// modelKey identifies a model within its source. An article without a name
+// cannot be grouped and is a model of its own.
+func modelKey(sourceID string, it connector.SupplierItem) string {
+	m := catalog.ModelOf(it)
+	if m.Name == "" {
+		return strings.Join([]string{sourceID, "sku", it.SKU}, "\x1f")
+	}
+	return strings.Join([]string{sourceID, m.Brand, m.Name, fmt.Sprint(m.ModelYear)}, "\x1f")
+}
+
+// decideNewModels creates one new_product action per model for the articles
+// first seen in this run (docs/decisions/0022). A pending action for
+// the same model is superseded and its articles carried over, so there is
+// never more than one open task per model.
+func (s *runState) decideNewModels() error {
+	type model struct {
+		key      string
+		title    string
+		brand    string
+		category string
+		ids      []int64
+	}
+	byKey := map[string]*model{}
+	var order []string
+	for _, n := range s.newItems {
+		key := modelKey(s.sourceID, n.item)
+		m, ok := byKey[key]
+		if !ok {
+			title := catalog.ModelOf(n.item).Title()
+			if title == "" {
+				title = n.item.SKU
+			}
+			m = &model{key: key, title: title, brand: n.item.Brand, category: n.item.Category}
+			byKey[key] = m
+			order = append(order, key)
+		}
+		if n.item.Category != m.category {
+			m.category = "" // mixed categories: only rules without category apply
+		}
+		m.ids = append(m.ids, n.id)
+	}
+	sort.Strings(order)
+
+	for _, key := range order {
+		m := byKey[key]
+		d := rules.Evaluate(s.rules, rules.Action{
+			Type: rules.NewProduct, SourceID: s.sourceID, Brand: m.brand, Category: m.category,
+			Facts: map[rules.Fact]float64{}})
+
+		known, err := s.q.ModelWasAccepted(s.ctx, key)
+		if err != nil {
+			return err
+		}
+		superseded, err := s.q.SupersedePendingModelActions(s.ctx, key)
+		if err != nil {
+			return err
+		}
+		ids := m.ids
+		if len(superseded) > 0 {
+			if err := s.q.DismissTasksOfActions(s.ctx, superseded); err != nil {
+				return err
+			}
+			carried, err := s.q.ListActionItemIDs(s.ctx, superseded)
+			if err != nil {
+				return err
+			}
+			ids = append(carried, ids...)
+		}
+
+		params := db.InsertActionParams{
+			Type: string(rules.NewProduct), Status: "pending_approval", NewValue: &m.title, Facts: []byte("{}"),
+			DecisionReason: d.Reason, ImportRunID: &s.runID, ModelKey: key,
+		}
+		if d.RuleID != 0 {
+			params.RuleID = &d.RuleID
+		}
+		if d.Outcome == rules.Auto {
+			at, by := time.Now(), "rule"
+			params.Status, params.DecidedAt, params.DecidedBy = "auto_applied", &at, &by
+		}
+		actionID, err := s.q.InsertAction(s.ctx, params)
+		if err != nil {
+			return err
+		}
+		if err := s.q.InsertActionItems(s.ctx, db.InsertActionItemsParams{ActionID: actionID, ItemIds: ids}); err != nil {
+			return err
+		}
+		if d.Outcome == rules.Auto {
+			s.res.AutoApplied++
+			continue
+		}
+		s.res.PendingApproval++
+		kind := "Neues Modell prüfen"
+		if known {
+			kind = "Neue Varianten prüfen"
+		}
+		title := fmt.Sprintf("%s: %s, %s", kind, m.title, plural(len(ids), "Variante", "Varianten"))
+		if err := s.task("approve_action", 2, title, "", &actionID, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // upsert writes one article and everything that follows from its changes.
@@ -248,7 +373,8 @@ func (s *runState) upsert(rec connector.RawRecord, item connector.SupplierItem, 
 			return err
 		}
 		s.res.New++
-		return s.decide(actions.Proposal{Type: rules.NewProduct, SKU: item.SKU}, id, item, nil)
+		s.newItems = append(s.newItems, newItem{id: id, item: item})
+		return nil
 	}
 
 	if err := s.q.UpdateSupplierItem(s.ctx, db.UpdateSupplierItemParams(params)); err != nil {

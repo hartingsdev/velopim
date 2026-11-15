@@ -25,3 +25,4 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 19 | [API-Typen von Hand gepflegt](0019-handwritten-api-types.md) | Vorläufig, ohne Betreiber entschieden |
 | 20 | [Kein Login, nur localhost](0020-no-login-localhost.md) | Vorläufig, ohne Betreiber entschieden |
 | 21 | [Produktschnitt je Modell einstellbar](0021-configurable-product-split.md) | Angenommen (Vorgabe des Betreibers); Gruppierung gebaut, Anbindung fehlt |
+| 22 | [Ein neues Modell ist eine Aktion und ein Task](0022-new-model-one-task.md) | Angenommen (vom Betreiber bestätigt), umgesetzt |

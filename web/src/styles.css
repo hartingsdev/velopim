@@ -263,3 +263,21 @@ summary {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+.variants table {
+  margin-top: 0.35rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.variants th,
+.variants td {
+  padding: 0.15rem 1.25rem 0.15rem 0;
+  text-align: left;
+}
+
+.variants th {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 0.8rem;
+}
