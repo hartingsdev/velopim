@@ -683,3 +683,11 @@ code {
 .snooze button {
   font-size: 0.875rem;
 }
+
+.draft-text {
+  margin: 0.5rem 0 0;
+}
+
+.draft-text button:not(.link) {
+  font-size: 0.875rem;
+}

@@ -27,6 +27,8 @@ type ProductDetail struct {
 	SplitAxes []string `json:"split_axes"`
 	// CanResplit is false once a product of the model exists in Shopify.
 	CanResplit bool `json:"can_resplit"`
+	// CanDraftText is true when a text model is configured.
+	CanDraftText bool `json:"can_draft_text"`
 }
 
 // FieldChange is one entry of the provenance log.
@@ -77,6 +79,7 @@ func (s *server) getProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	detail.CanDraftText = s.describer != nil
 	writeJSON(w, http.StatusOK, detail)
 }
 

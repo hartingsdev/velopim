@@ -11,6 +11,7 @@ velopim steht zwischen den Lieferanten und Shopify. Shopify bleibt Shop, Checkou
 | Hintergrundjobs | River, Queue in PostgreSQL; laufen im Serverprozess | [30](decisions/0030-fetch-jobs.md) |
 | Oberfläche | React + TypeScript + Vite in `web/`, per `go:embed` im Binary | [3](decisions/0003-react-frontend.md) |
 | Shopify | Admin GraphQL API `2026-10`, Anmeldung per Client Credentials | [29](decisions/0029-shopify-sync.md) |
+| Textvorschläge | Claude API über `anthropic-sdk-go` | [32](decisions/0032-description-drafts.md) |
 | Tests | `go test`, tabellengetrieben | |
 
 Tests sind Pflicht für Regel-Engine, Mappings und Normalisierung, Preiskalkulation, Gruppierung und Sync-Diff. Datenbanktests laufen nur mit `TEST_DATABASE_URL` und legen je Test ein eigenes Schema an (`internal/dbtest`).
@@ -32,6 +33,7 @@ internal/shopsync/       Sync: Plan und Übertragung je Produkt
 internal/fetch/          Datei eines Lieferanten von einer Adresse laden
 internal/jobs/           Hintergrundjobs (River): Abrufe einplanen und ausführen, Shopify-Sync, tägliche Mail
 internal/notify/         tägliche Mail über offene Aufgaben
+internal/describe/       Vorschläge für Produktbeschreibungen (Claude API)
 cmd/introspect/          Entwicklungshilfe: Typen der Admin-API des Stores anzeigen (nur lesend)
 internal/api/            HTTP-Handler
 internal/db/             von sqlc generiert, nicht von Hand ändern
@@ -59,6 +61,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 - **Kein Schreiben in den Live-Shop.** Der Sync läuft standardmäßig im Dry-Run. Echte Schreibzugriffe gehen nur mit `SHOPIFY_WRITE_ENABLED=true`, und der Client lehnt sie ab, wenn Shopify den Store nicht als Development-Store meldet.
 - **Zugangsdaten nur über Umgebungsvariablen** (`.env`, nicht eingecheckt; `.env.example` pflegen).
 - **Interne Daten gelangen nie zu Shopify:** Der Sync liest nur aus der Projektion ([6](decisions/0006-shopify-projection-allowlist.md)).
+- **An das Textmodell geht nur eine Positivliste** von Produktdaten (`describe.Input`), nie Preise, Lieferanten oder Notizen ([32](decisions/0032-description-drafts.md)).
 - **Kein Login:** Der Server lauscht nur auf localhost ([20](decisions/0020-no-login-localhost.md)).
 
 ## API
@@ -81,6 +84,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `PUT /api/products/{id}/split` | Modell nach anderen Merkmalen trennen (`split_by`); 422, wenn es so nicht geht oder das Modell schon in Shopify ist |
 | `PATCH /api/variants/{id}` | `price_cents` setzen |
 | `POST /api/products/{id}/notes` | interne Notiz anlegen |
+| `POST /api/products/{id}/description-draft` | Beschreibung vorschlagen lassen ([32](decisions/0032-description-drafts.md)); speichert nichts; 409 ohne `ANTHROPIC_API_KEY`, 502, wenn das Textmodell nicht antwortet |
 | `GET /api/rules`, `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | Regeln der Regel-Engine; 422 bei ungültiger Regel; Löschen einer Regel, die schon entschieden hat, gibt 409 (stattdessen ausschalten) |
 | `GET /api/usage-policies`, `PUT /api/usage-policies`, `DELETE /api/usage-policies?source_id=…&brand=…&field_group=…` | Nutzungsrichtlinie; „verwenden“ für alle Marken wird als fehlender Eintrag gespeichert |
 | `GET /api/sync-plan` | Dry-Run: was für die ausgewählten Produkte an Shopify gesendet würde. Sendet und speichert nichts |

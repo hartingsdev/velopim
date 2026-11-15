@@ -137,6 +137,32 @@ func (q *Queries) GetPricedVariantOfSupplierItem(ctx context.Context, supplierIt
 	return i, err
 }
 
+const getProductFacts = `-- name: GetProductFacts :one
+SELECT brand, name, model_year, category, option_names FROM product WHERE id = $1
+`
+
+type GetProductFactsRow struct {
+	Brand       string
+	Name        string
+	ModelYear   *int32
+	Category    string
+	OptionNames []byte
+}
+
+// What a description can be written from.
+func (q *Queries) GetProductFacts(ctx context.Context, id int64) (GetProductFactsRow, error) {
+	row := q.db.QueryRow(ctx, getProductFacts, id)
+	var i GetProductFactsRow
+	err := row.Scan(
+		&i.Brand,
+		&i.Name,
+		&i.ModelYear,
+		&i.Category,
+		&i.OptionNames,
+	)
+	return i, err
+}
+
 const getProductImages = `-- name: GetProductImages :one
 SELECT image_urls FROM product WHERE id = $1
 `
@@ -755,6 +781,51 @@ func (q *Queries) ListProductNotes(ctx context.Context, productIds []string) ([]
 			&i.Body,
 			&i.Author,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductVariantFacts = `-- name: ListProductVariantFacts :many
+SELECT v.option_values, s.source_id, s.brand AS supplier_brand, s.description AS supplier_description, s.attributes
+FROM variant v
+LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = $1
+ORDER BY v.id
+`
+
+type ListProductVariantFactsRow struct {
+	OptionValues        []byte
+	SourceID            *string
+	SupplierBrand       *string
+	SupplierDescription *string
+	Attributes          []byte
+}
+
+// Option values of a product's variants with the data of their preferred
+// supplier article (null columns when a variant has none).
+func (q *Queries) ListProductVariantFacts(ctx context.Context, productID int64) ([]ListProductVariantFactsRow, error) {
+	rows, err := q.db.Query(ctx, listProductVariantFacts, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductVariantFactsRow
+	for rows.Next() {
+		var i ListProductVariantFactsRow
+		if err := rows.Scan(
+			&i.OptionValues,
+			&i.SourceID,
+			&i.SupplierBrand,
+			&i.SupplierDescription,
+			&i.Attributes,
 		); err != nil {
 			return nil, err
 		}

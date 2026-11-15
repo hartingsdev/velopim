@@ -356,6 +356,8 @@ export interface ProductDetail {
   split_axes: string[];
   /** False once a product of the model exists in Shopify. */
   can_resplit: boolean;
+  /** True when a text model is configured (ANTHROPIC_API_KEY). */
+  can_draft_text: boolean;
 }
 
 export function getProduct(id: string): Promise<ProductDetail> {
@@ -368,6 +370,16 @@ function send(method: string, path: string, body: unknown): Promise<void> {
 
 export function updateProduct(id: number, change: { name?: string; description_html?: string; wanted?: boolean }): Promise<void> {
   return send("PATCH", `/api/products/${id}`, change);
+}
+
+/** Suggests a description; nothing is stored until the product is saved. */
+export async function draftDescription(id: number): Promise<string> {
+  const out = await request<{ description_html: string }>(`/api/products/${id}/description-draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  return out.description_html;
 }
 
 export function setVariantPrice(id: number, priceCents: number): Promise<void> {

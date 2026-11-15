@@ -24,6 +24,7 @@ import (
 
 	"velopim/internal/api"
 	"velopim/internal/db"
+	"velopim/internal/describe"
 	"velopim/internal/importer"
 	"velopim/internal/jobs"
 	"velopim/internal/notify"
@@ -161,7 +162,12 @@ func serve(ctx context.Context) error {
 		_ = queue.Stop(stop)
 	}()
 
-	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, api.WithRawDir(rawDir()), api.WithJobs(queue)))
+	apiOptions := []api.Option{api.WithRawDir(rawDir()), api.WithJobs(queue)}
+	if generator, ok := describe.FromEnv(os.Getenv); ok {
+		apiOptions = append(apiOptions, api.WithDescriber(generator))
+		log.Printf("description drafts with %s", generator.Model())
+	}
+	mux.Handle("/api/", api.New(pool, env("VELOPIM_ACTOR", "betreiber"), store, apiOptions...))
 	mux.Handle("/", web.Handler())
 
 	// There is no login: keep the default on localhost.

@@ -141,6 +141,8 @@ type server struct {
 	rawDir string
 	// jobs is the background queue; nil when none is running.
 	jobs Jobs
+	// describer drafts product descriptions; nil when not configured.
+	describer Describer
 }
 
 // Option configures the API.
@@ -204,6 +206,7 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option)
 	mux.HandleFunc("PATCH /api/products/{id}", s.patchProduct)
 	mux.HandleFunc("PUT /api/products/{id}/split", s.resplitProduct)
 	mux.HandleFunc("POST /api/products/{id}/notes", s.addProductNote)
+	mux.HandleFunc("POST /api/products/{id}/description-draft", s.draftDescription)
 	mux.HandleFunc("PATCH /api/variants/{id}", s.patchVariant)
 	mux.HandleFunc("GET /api/rules", s.listRules)
 	mux.HandleFunc("POST /api/rules", s.createRule)

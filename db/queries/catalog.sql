@@ -294,3 +294,17 @@ DELETE FROM shopify_listing WHERE product_id = ANY(sqlc.arg(product_ids)::bigint
 
 -- name: DeleteProducts :exec
 DELETE FROM product WHERE id = ANY(sqlc.arg(product_ids)::bigint[]);
+
+-- name: GetProductFacts :one
+-- What a description can be written from.
+SELECT brand, name, model_year, category, option_names FROM product WHERE id = $1;
+
+-- name: ListProductVariantFacts :many
+-- Option values of a product's variants with the data of their preferred
+-- supplier article (null columns when a variant has none).
+SELECT v.option_values, s.source_id, s.brand AS supplier_brand, s.description AS supplier_description, s.attributes
+FROM variant v
+LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = $1
+ORDER BY v.id;

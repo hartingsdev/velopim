@@ -3,6 +3,7 @@ import {
   addProductNote,
   ApiError,
   resplitProduct,
+  draftDescription,
   setVariantPrice,
   updateProduct,
   type FieldChange,
@@ -50,7 +51,7 @@ export function ProductDetail({ detail, onChanged, onError }: Props) {
       </p>
       <SplitCard detail={detail} />
       {detail.products.map((p) => (
-        <ShopProductCard key={p.id} product={p} onChanged={onChanged} onError={onError} />
+        <ShopProductCard key={p.id} product={p} canDraftText={detail.can_draft_text} onChanged={onChanged} onError={onError} />
       ))}
       <Notes detail={detail} onChanged={onChanged} onError={onError} />
       <History detail={detail} />
@@ -133,12 +134,33 @@ function SplitCard({ detail }: { detail: Detail }) {
   );
 }
 
-function ShopProductCard({ product, onChanged, onError }: { product: ShopProduct } & Omit<Props, "detail">) {
+function ShopProductCard({
+  product,
+  canDraftText,
+  onChanged,
+  onError,
+}: { product: ShopProduct; canDraftText: boolean } & Omit<Props, "detail">) {
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description_html);
   const [prices, setPrices] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
+  const [drafting, setDrafting] = useState(false);
+  // The text that was in the field before a suggestion replaced it.
+  const [beforeDraft, setBeforeDraft] = useState<string | null>(null);
+
+  async function draft() {
+    setDrafting(true);
+    setProblems([]);
+    try {
+      const suggestion = await draftDescription(product.id);
+      setBeforeDraft(description);
+      setDescription(suggestion);
+    } catch (e) {
+      setProblems([(e as Error).message]);
+    }
+    setDrafting(false);
+  }
 
   const priceChanges = product.variants.flatMap((v) => {
     const typed = prices[v.id];
@@ -197,9 +219,32 @@ function ShopProductCard({ product, onChanged, onError }: { product: ShopProduct
           </label>
           <label className="wide">
             Beschreibung (HTML)
-            <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <textarea rows={beforeDraft !== null ? 12 : 4} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
         </div>
+        {canDraftText && (
+          <p className="item draft-text">
+            <button type="button" onClick={() => void draft()} disabled={busy || drafting}>
+              {drafting ? "Schreibe Vorschlag …" : "Beschreibung vorschlagen"}
+            </button>
+            {beforeDraft !== null && !drafting && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => {
+                    setDescription(beforeDraft);
+                    setBeforeDraft(null);
+                  }}
+                >
+                  Vorschlag verwerfen
+                </button>
+                <span> Der Vorschlag ist noch nicht gespeichert. Bitte lesen und die Angaben prüfen, dann speichern.</span>
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       {product.image_urls.length > 0 && (

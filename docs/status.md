@@ -25,6 +25,7 @@
 | Hintergrundjobs mit River: Abrufe einplanen und ausführen, Shopify-Sync im festen Abstand | `jobs` |
 | Wiedervorlage: Aufgaben bis zu einem Tag zurückstellen | `api`, `web` |
 | Tägliche Mail über offene Aufgaben (Job, SMTP über Umgebungsvariablen; `velopim digest` zum Ausprobieren) | `notify`, `jobs` |
+| Beschreibung vorschlagen: Textvorschlag vom Sprachmodell (Claude API) in der Produktansicht, gespeichert erst nach Prüfung; nur freigegebene Produktdaten gehen an das Modell. Gegen die echte API nicht geprüft (kein Schlüssel hinterlegt) | `describe`, `api`, `web` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import per Befehl (`velopim import <quelle> <datei>`) und per Datei-Upload im Reiter „Importe“ | `cmd/velopim`, `api`, `web` |
@@ -33,6 +34,7 @@
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
+- Beschreibungen für viele Produkte auf einmal erzeugen (Job, Batch-API) und weitere erzeugte Felder (Name, SEO)
 - Bilder und Varianten von Hand bearbeiten; Trennung eines Modells ändern, das schon in Shopify ist
 - Matching bestehender Shopify-Produkte
 - Andere Formate als CSV und Abruf über eine API mit mehreren Aufrufen (BMEcat, veloconnect)

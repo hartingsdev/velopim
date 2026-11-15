@@ -35,3 +35,4 @@ Jede Architekturentscheidung hat eine eigene Datei mit Kontext, Entscheidung, Al
 | 29 | [Shopify-Sync über productSet, Verkaufbarkeit über Bestandsführung](0029-shopify-sync.md) | Vorläufig, gegen den Development-Store geprüft |
 | 30 | [velopim holt Lieferantendateien selbst ab, über Jobs in River](0030-fetch-jobs.md) | Angenommen (Vorgabe des Betreibers), umgesetzt; Ausgestaltung vorläufig |
 | 31 | [Wiedervorlage für Aufgaben und tägliche Mail](0031-snooze-and-daily-mail.md) | Angenommen (Vorgabe des Betreibers), umgesetzt |
+| 32 | [Produktbeschreibungen als Vorschlag vom Textmodell](0032-description-drafts.md) | Vorläufig, ohne Betreiber im Detail entschieden; gegen die echte API nicht geprüft |
