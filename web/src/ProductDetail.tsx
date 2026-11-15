@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import {
   addProductNote,
   ApiError,
+  resplitProduct,
   setVariantPrice,
   updateProduct,
   type FieldChange,
@@ -47,12 +48,88 @@ export function ProductDetail({ detail, onChanged, onError }: Props) {
           ? "ein Produkt im Shop"
           : `im Shop ${detail.products.length} Produkte, getrennt nach ${splitAxes.map(axisLabel).join(", ")}`}
       </p>
+      <SplitCard detail={detail} />
       {detail.products.map((p) => (
         <ShopProductCard key={p.id} product={p} onChanged={onChanged} onError={onError} />
       ))}
       <Notes detail={detail} onChanged={onChanged} onError={onError} />
       <History detail={detail} />
     </>
+  );
+}
+
+/** Choose what separates the model into shop products. */
+function SplitCard({ detail }: { detail: Detail }) {
+  const [splitBy, setSplitBy] = useState<string[]>(detail.split_by);
+  const [busy, setBusy] = useState(false);
+  const [problems, setProblems] = useState<string[]>([]);
+  // Axes to offer: where the variants differ, plus what is set now.
+  const axes = [...new Set([...detail.split_axes, ...detail.split_by])];
+  if (axes.length === 0) return null;
+  const changed = [...splitBy].sort().join() !== [...detail.split_by].sort().join();
+
+  async function apply() {
+    setBusy(true);
+    setProblems([]);
+    try {
+      const id = await resplitProduct(detail.products[0].id, splitBy);
+      // The products were replaced: open one of the new ones.
+      window.location.hash = href("product", { id: String(id) });
+    } catch (e) {
+      setProblems(e instanceof ApiError && e.issues.length > 0 ? e.issues : [(e as Error).message]);
+    }
+    setBusy(false);
+  }
+
+  return (
+    <section className="task">
+      <div className="task-head">
+        <h2>Trennung im Shop</h2>
+      </div>
+      {detail.can_resplit ? (
+        <>
+          <fieldset className="split">
+            <legend>Eigene Produkte je</legend>
+            <div className="axes">
+              {axes.map((axis) => (
+                <label key={axis}>
+                  <input
+                    type="checkbox"
+                    checked={splitBy.includes(axis)}
+                    onChange={(e) => setSplitBy(e.target.checked ? [...splitBy, axis] : splitBy.filter((a) => a !== axis))}
+                  />
+                  {axisLabel(axis)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p className="hint">
+            Ohne Haken ist das Modell ein Produkt mit allen Varianten. Artikelnummern, Preise und Notizen bleiben beim
+            Ändern erhalten; die Produkte werden neu angelegt, sind wieder Entwürfe und nicht mehr für den Store
+            ausgewählt.
+          </p>
+          {problems.length > 0 && (
+            <div className="error" role="alert">
+              <ul>
+                {problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="decide">
+            <button type="button" disabled={busy || !changed} onClick={() => void apply()}>
+              Trennung ändern
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="item">
+          {detail.split_by.length > 0 ? `Getrennt nach ${detail.split_by.map(axisLabel).join(", ")}.` : "Ein Produkt mit allen Varianten."}{" "}
+          Das Modell ist schon in Shopify; die Trennung lässt sich nicht mehr ändern.
+        </p>
+      )}
+    </section>
   );
 }
 

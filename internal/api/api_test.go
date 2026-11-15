@@ -791,3 +791,105 @@ func TestUploadImport(t *testing.T) {
 		t.Errorf("import list: %s", rec.Body)
 	}
 }
+
+func TestResplit(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester", nil)
+	const jsonType = "application/json"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO supplier_item (source_id, sku, brand, name, model_year, color, frame_size, cost_cents, attributes, image_urls) VALUES
+		  ('example', 'A', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000, '{"Rahmenform": "Wave"}', '["https://img.test/rot.jpg"]'),
+		  ('example', 'B', 'Beispielrad', 'City 3', 2027, 'rot', '54', 50000, '{"Rahmenform": "Wave"}', '["https://img.test/rot.jpg"]'),
+		  ('example', 'C', 'Beispielrad', 'City 3', 2027, 'blau', '50', 50000, '{"Rahmenform": "Herren"}', '["https://img.test/blau.jpg"]');
+		INSERT INTO action (type, status, new_value, decision_reason, model_key)
+		  VALUES ('new_product', 'pending_approval', 'Beispielrad City 3 (2027)', 'no rule matched, approval by default', 'm');
+		INSERT INTO action_item (action_id, supplier_item_id) SELECT 1, id FROM supplier_item;
+		INSERT INTO task (kind, title, priority, action_id) VALUES ('approve_action', 'Neues Modell prüfen', 2, 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(t, h, "POST", "/api/tasks/1/decision", jsonType,
+		`{"approve":true,"variant_prices":{"A":89900,"B":89900,"C":84900}}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body)
+	}
+	// One product with three variants; a note and a hand-written text.
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", "/api/products/1/notes", `{"body":"Bestellhinweis"}`},
+		{"PATCH", "/api/products/1", `{"description_html":"<p>Eigener Text</p>"}`},
+	} {
+		if rec := do(t, h, c.method, c.path, jsonType, c.body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s %s: %d %s", c.method, c.path, rec.Code, rec.Body)
+		}
+	}
+	get := func(id string) ProductDetail {
+		t.Helper()
+		var d ProductDetail
+		rec := do(t, h, "GET", "/api/products/"+id, "", "")
+		if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("GET product %s: %d %v", id, rec.Code, err)
+		}
+		return d
+	}
+	summary := func(d ProductDetail) string {
+		var parts []string
+		for _, p := range d.Products {
+			s := p.Name + " [" + strings.Join(p.OptionNames, ",") + "]"
+			for _, v := range p.Variants {
+				s += " " + v.SKU + "=" + strings.Join(v.OptionValues, "/") + "@" + strconv.FormatInt(*v.PriceCents, 10)
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, " | ")
+	}
+
+	before := get("1")
+	if got := summary(before); got != "City 3 [Farbe,Rahmenhöhe] 10001=blau/50@84900 10002=rot/50@89900 10003=rot/54@89900" {
+		t.Fatalf("before: %s", got)
+	}
+	if strings.Join(before.SplitAxes, ",") != "color,frame_size,attributes.Rahmenform" || len(before.SplitBy) != 0 || !before.CanResplit {
+		t.Errorf("split info: axes %v, by %v, can %v", before.SplitAxes, before.SplitBy, before.CanResplit)
+	}
+
+	// Split by color: two products. Article numbers and prices stay.
+	rec := do(t, h, "PUT", "/api/products/1/split", jsonType, `{"split_by":["color"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resplit: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		ProductID int64 `json:"product_id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	after := get(strconv.FormatInt(out.ProductID, 10))
+	if got := summary(after); got != "City 3 blau [Rahmenhöhe] 10001=50@84900 | City 3 rot [Rahmenhöhe] 10002=50@89900 10003=54@89900" {
+		t.Errorf("after: %s", got)
+	}
+	// The hand-written text and the note survive; images follow the cut.
+	if after.Products[0].Description != "<p>Eigener Text</p>" || len(after.Notes) != 1 ||
+		strings.Join(after.Products[0].ImageURLs, ",") != "https://img.test/blau.jpg" || strings.Join(after.Products[1].ImageURLs, ",") != "https://img.test/rot.jpg" {
+		t.Errorf("carried over: %+v notes %d", after.Products[0], len(after.Notes))
+	}
+	if strings.Join(after.SplitBy, ",") != "color" {
+		t.Errorf("split_by after: %v", after.SplitBy)
+	}
+	if rec := do(t, h, "GET", "/api/products/1", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("old product still exists: %d", rec.Code)
+	}
+
+	// Back to one product, then a cut that cannot work.
+	id := strconv.FormatInt(out.ProductID, 10)
+	if rec := do(t, h, "PUT", "/api/products/"+id+"/split", jsonType, `{"split_by":["bogus"]}`); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("unknown axis: %d", rec.Code)
+	}
+	// Once a product is in Shopify the cut is fixed.
+	if _, err := pool.Exec(context.Background(), `INSERT INTO shopify_listing (product_id, wanted, shopify_product_id) VALUES ($1, true, 'gid://shopify/Product/1')`, out.ProductID); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(t, h, "PUT", "/api/products/"+id+"/split", jsonType, `{"split_by":[]}`); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "schon in Shopify") {
+		t.Errorf("resplit of a synced model: %d %s", rec.Code, rec.Body)
+	}
+	if get(id).CanResplit {
+		t.Error("can_resplit must be false once the model is in Shopify")
+	}
+}

@@ -248,3 +248,49 @@ SELECT status FROM product WHERE id = $1;
 
 -- name: SetProductStatus :exec
 UPDATE product SET status = $2, updated_at = now() WHERE id = $1;
+
+-- name: GetProductModel :one
+SELECT model_key, split_by FROM product WHERE id = $1;
+
+-- name: ListModelProducts :many
+-- All products cut from a model, with whether they already exist in Shopify.
+SELECT p.id, p.category, p.description_html, p.status, p.split_by,
+       (l.shopify_product_id IS NOT NULL)::bool AS in_shopify, coalesce(l.wanted, false)::bool AS wanted
+FROM product p LEFT JOIN shopify_listing l ON l.product_id = p.id
+WHERE p.model_key = $1
+ORDER BY p.id;
+
+-- name: ListModelVariants :many
+-- The variants of a model with the preferred supplier article behind each.
+SELECT v.id AS variant_id, v.sku AS own_sku, s.source_id, s.sku, s.brand, s.name, s.model_year, s.color, s.frame_size,
+       s.attributes, s.image_urls
+FROM variant v
+JOIN product p ON p.id = v.product_id
+JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE p.model_key = $1
+ORDER BY v.id;
+
+-- name: CountModelVariants :one
+SELECT count(*) FROM variant v JOIN product p ON p.id = v.product_id WHERE p.model_key = $1;
+
+-- name: MoveVariant :exec
+UPDATE variant SET product_id = $2, option_values = $3, updated_at = now() WHERE id = $1;
+
+-- name: MoveProductReferences :exec
+-- Notes, tasks and the history of products that are being replaced go to
+-- the product that takes their place.
+WITH moved_notes AS (
+    UPDATE internal_note SET entity_id = sqlc.arg(target)::bigint::text
+    WHERE entity_type = 'product' AND entity_id = ANY(sqlc.arg(old_text_ids)::text[])
+), moved_tasks AS (
+    UPDATE task SET product_id = sqlc.arg(target)::bigint WHERE product_id = ANY(sqlc.arg(old_ids)::bigint[])
+)
+UPDATE field_change SET entity_id = sqlc.arg(target)::bigint
+WHERE entity_type = 'product' AND entity_id = ANY(sqlc.arg(old_ids)::bigint[]);
+
+-- name: DeleteListings :exec
+DELETE FROM shopify_listing WHERE product_id = ANY(sqlc.arg(product_ids)::bigint[]);
+
+-- name: DeleteProducts :exec
+DELETE FROM product WHERE id = ANY(sqlc.arg(product_ids)::bigint[]);

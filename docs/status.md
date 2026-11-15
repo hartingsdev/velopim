@@ -16,7 +16,7 @@
 | Betragsgleiche Preisänderung: EK-Änderung schlägt denselben Betrag beim Verkaufspreis vor; Freigabe oder Regel ändert den Preis | `importer`, `tasks`, `catalog` |
 | Übernahme von Beschreibung, Bildern, UVP und EAN in den Katalog bei Freigabe oder per Regel | `catalog` |
 | Regelpflege in der Oberfläche: anlegen, ändern, ein- und ausschalten, löschen; Vorlagen für häufige Regeln | `api`, `web` |
-| Produktansicht je Modell: Name, Beschreibung und Preise bearbeiten, „in den Store“ auswählen, interne Notizen, Herkunft und Verlauf jedes Feldes | `api`, `web` |
+| Produktansicht je Modell: Name, Beschreibung und Preise bearbeiten, Trennung im Shop ändern (solange nicht in Shopify), „in den Store“ auswählen, interne Notizen, Herkunft und Verlauf jedes Feldes | `api`, `web` |
 | Nutzungsrichtlinie je Lieferant, Marke und Datengruppe, gepflegt im Reiter „Lieferanten“ | `catalog`, `importer`, `api`, `web` |
 | Shopify-Sync: Client (Token-Tausch, Wiederholungen bei Drosselung, Schreibsperre außerhalb von Development-Stores), Übertragung je Produkt mit `productSet`, Bilder werden behalten statt neu geladen, Veröffentlichen-Task, Fehler-Task; `velopim sync` und Knopf im Reiter „Shopify“. Gegen den Development-Store `fahrrad-ass-dev` geprüft | `shopify`, `shopsync`, `api`, `web` |
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
@@ -28,7 +28,7 @@
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.
 
 ## Noch nicht begonnen
-- Trennmerkmale eines bestehenden Modells ändern; Bilder und Varianten von Hand bearbeiten
+- Bilder und Varianten von Hand bearbeiten; Trennung eines Modells ändern, das schon in Shopify ist
 - Sync unmittelbar nach Import oder Freigabe (bisher von Hand oder im festen Abstand)
 - Veröffentlichung im Vertriebskanal „Onlineshop“ (braucht das Recht `write_publications`)
 - Matching bestehender Shopify-Produkte

@@ -345,6 +345,11 @@ export interface ProductDetail {
   products: (Product & { description_html: string; image_urls: string[]; wanted: boolean })[];
   history: FieldChange[];
   notes: Note[];
+  /** How the model is cut into shop products now, and what it could be cut by. */
+  split_by: string[];
+  split_axes: string[];
+  /** False once a product of the model exists in Shopify. */
+  can_resplit: boolean;
 }
 
 export function getProduct(id: string): Promise<ProductDetail> {
@@ -454,4 +459,14 @@ export function runSync(): Promise<SyncResult> {
 /** Accepts a held delivery as complete; the missing articles are deactivated. */
 export function confirmImportRun(id: number): Promise<{ run_id: number; removed: number }> {
   return request(`/api/import-runs/${id}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+}
+
+/** Cuts the model of a product anew; returns the id of one of the new products. */
+export async function resplitProduct(id: number, splitBy: string[]): Promise<number> {
+  const body = await request<{ product_id: number }>(`/api/products/${id}/split`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ split_by: splitBy }),
+  });
+  return body.product_id;
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -20,6 +21,12 @@ type ProductDetail struct {
 	Products []Product     `json:"products"`
 	History  []FieldChange `json:"history"`
 	Notes    []Note        `json:"notes"`
+	// SplitBy is how the model is cut into products now; SplitAxes is what
+	// it could be cut by (axes in which its variants differ).
+	SplitBy   []string `json:"split_by"`
+	SplitAxes []string `json:"split_axes"`
+	// CanResplit is false once a product of the model exists in Shopify.
+	CanResplit bool `json:"can_resplit"`
 }
 
 // FieldChange is one entry of the provenance log.
@@ -89,7 +96,27 @@ func loadProductDetail(ctx context.Context, q *db.Queries, id int64) (*ProductDe
 		ids[i] = row.ID
 		textIDs[i] = strconv.FormatInt(row.ID, 10)
 	}
-	detail := &ProductDetail{History: []FieldChange{}, Notes: []Note{}}
+	detail := &ProductDetail{History: []FieldChange{}, Notes: []Note{}, SplitBy: []string{}, SplitAxes: []string{}}
+	if model, err := q.GetProductModel(ctx, id); err != nil {
+		return nil, err
+	} else if model.ModelKey != "" {
+		_ = json.Unmarshal(model.SplitBy, &detail.SplitBy)
+		axes, err := catalog.SplitAxes(ctx, q, id)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range axes {
+			detail.SplitAxes = append(detail.SplitAxes, string(a))
+		}
+		siblings, err := q.ListModelProducts(ctx, model.ModelKey)
+		if err != nil {
+			return nil, err
+		}
+		detail.CanResplit = true
+		for _, p := range siblings {
+			detail.CanResplit = detail.CanResplit && !p.InShopify
+		}
+	}
 	if detail.Products, err = buildProducts(ctx, q, plain); err != nil {
 		return nil, err
 	}
@@ -207,6 +234,62 @@ func (s *server) patchProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// resplitProduct cuts the model of a product anew by other axes. The
+// products of the model are replaced; the response names one of the new ones.
+func (s *server) resplitProduct(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		SplitBy []string `json:"split_by"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	ctx := r.Context()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+	q := db.New(tx)
+	model, err := q.GetProductModel(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	axes := make([]catalog.Axis, len(in.SplitBy))
+	for i, a := range in.SplitBy {
+		axes[i] = catalog.Axis(a)
+	}
+	err = catalog.Resplit(ctx, q, id, axes, s.actor)
+	var blocked *catalog.BlockedError
+	if errors.As(err, &blocked) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "not possible as asked", "issues": blocked.Issues})
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	products, err := q.ListModelProducts(ctx, model.ModelKey)
+	if err != nil || len(products) == 0 {
+		internalError(w, errors.Join(err, errors.New("model has no products after resplit")))
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"product_id": products[0].ID})
 }
 
 func (s *server) addProductNote(w http.ResponseWriter, r *http.Request) {

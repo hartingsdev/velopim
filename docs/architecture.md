@@ -71,6 +71,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `GET /api/supplier-items?q=…` | Suche in allen Lieferantenartikeln (höchstens 50) |
 | `GET /api/products/{id}` | das Produkt mit seinen Geschwistern aus demselben Modell, Verlauf (`field_change`) und internen Notizen |
 | `PATCH /api/products/{id}` | `name`, `description_html`, `wanted` (in den Store; 422, solange eine Variante keinen Preis hat) |
+| `PUT /api/products/{id}/split` | Modell nach anderen Merkmalen trennen (`split_by`); 422, wenn es so nicht geht oder das Modell schon in Shopify ist |
 | `PATCH /api/variants/{id}` | `price_cents` setzen |
 | `POST /api/products/{id}/notes` | interne Notiz anlegen |
 | `GET /api/rules`, `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | Regeln der Regel-Engine; 422 bei ungültiger Regel; Löschen einer Regel, die schon entschieden hat, gibt 409 (stattdessen ausschalten) |
