@@ -11,7 +11,8 @@
 - **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie übernommen. Abstellen lässt es sich im Reiter „Lieferanten“ ([28](decisions/0028-usage-policy.md)).
 - **Preise folgen dem EK ([26](decisions/0026-price-follow-rules.md)):** „Nicht mitgehen, weil noch Lagerbestand da ist“ geht erst, wenn Eigenbestand erfasst wird.
 - **Preisregel ([18](decisions/0018-price-changes-need-approval.md)):** Der Betrag wird eins zu eins auf den Ladenpreis übertragen (Annahme), nicht brutto umgerechnet.
-- **OIDC und Gruppen:** Welcher Anbieter? Sollen Gruppen Aufgaben nur filtern oder auch Rechte begrenzen? Ersetzt dann „kein Login“ ([20](decisions/0020-no-login-localhost.md)) und die Annahme „ein Nutzer“.
+- **OIDC und Gruppen:** Anbieter ist Authentik (Vorgabe des Betreibers). Offen: Adresse des Authentik-Servers, Client ID und Secret für velopim, Namen der Gruppen, und ob Gruppen Aufgaben nur filtern oder auch Rechte begrenzen. Ersetzt dann „kein Login“ ([20](decisions/0020-no-login-localhost.md)) und die Annahme „ein Nutzer“.
+- **Eigenbestand:** Der Betreiber hat selbst Räder auf Lager; bisher zählt nur die Verfügbarkeit des Lieferanten ([27](decisions/0027-availability-is-live.md)). Offen ist, wo der Eigenbestand geführt wird: in Shopify (velopim liest ihn nur) oder in velopim.
 - **Schutzregeln ([13](decisions/0013-guard-rules.md)):** vom Betreiber nicht ausdrücklich bestätigt.
 - **Vorläufige Entscheidungen ohne Betreiber:** handgepflegte API-Typen ([19](decisions/0019-handwritten-api-types.md)), kein Login ([20](decisions/0020-no-login-localhost.md)), Verfügbarkeit wird live gelesen ([27](decisions/0027-availability-is-live.md)), Stufen der Nutzungsrichtlinie ([28](decisions/0028-usage-policy.md)), Art des Shopify-Syncs ([29](decisions/0029-shopify-sync.md)).
 
