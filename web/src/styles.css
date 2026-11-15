@@ -590,3 +590,13 @@ td .meta {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+
+.upload input[type="file"] {
+  flex: 2 1 14rem;
+  width: auto;
+  text-align: left;
+}
+
+.upload {
+  margin: 0.6rem 0 0;
+}

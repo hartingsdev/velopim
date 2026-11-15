@@ -22,7 +22,7 @@
 | Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
-| Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
+| Import per Befehl (`velopim import <quelle> <datei>`) und per Datei-Upload im Reiter „Importe“ | `cmd/velopim`, `api`, `web` |
 | Oberfläche: Aufgaben mit Freigeben/Ablehnen; im Modell-Task Varianten mit EK, UVP und Verkaufspreis sowie Wahl der Trennmerkmale und Korrektur der Preise vor der Freigabe; erledigte Aufgaben als Umschalter im Reiter Aufgaben; Produktliste je Modell (die Trennung für den Shop ist nur ein Hinweis); Importläufe; Kalkulationsregeln | `web` |
 
 Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nicht mit Hartje-Daten.

@@ -9,7 +9,7 @@ import {
   listTasks,
   listUsagePolicies,
   searchSupplierItems,
-  type ImportRun,
+  type ImportList,
   type PricingRule,
   type ProductDetail as ProductDetailData,
   type ProductList,
@@ -32,7 +32,7 @@ import { Tasks } from "./Tasks";
 type Data =
   | { view: "tasks"; tasks: TaskList }
   | { view: "products"; products: ProductList }
-  | { view: "imports"; runs: ImportRun[] }
+  | { view: "imports"; list: ImportList }
   | { view: "pricing"; rules: PricingRule[] }
   | { view: "rules"; list: RuleList }
   | { view: "product"; detail: ProductDetailData }
@@ -45,7 +45,7 @@ async function fetchData({ view, params }: Route): Promise<Data> {
     case "products":
       return { view, products: await listProducts({ status: params.status, unpriced: params.unpriced, q: params.q }) };
     case "imports":
-      return { view, runs: await listImportRuns() };
+      return { view, list: await listImportRuns() };
     case "pricing":
       return { view, rules: await listPricingRules() };
     case "rules":
@@ -159,7 +159,9 @@ export function App() {
         )}
         {current?.view === "tasks" && <Tasks list={current.tasks} params={route.params} onChanged={load} onError={setError} />}
         {current?.view === "products" && <Products list={current.products} params={route.params} />}
-        {current?.view === "imports" && <ImportRuns runs={current.runs} params={route.params} />}
+        {current?.view === "imports" && (
+          <ImportRuns list={current.list} params={route.params} onChanged={load} onError={setError} />
+        )}
         {current?.view === "pricing" && (
           <Pricing rules={current.rules} params={route.params} onChanged={load} onError={setError} />
         )}

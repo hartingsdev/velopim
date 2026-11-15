@@ -145,9 +145,34 @@ export function decideTask(id: number, approve: boolean, note: string, correctio
   });
 }
 
-export async function listImportRuns(): Promise<ImportRun[]> {
-  const body = await request<{ runs: ImportRun[] }>("/api/import-runs");
-  return body.runs;
+export interface ImportList {
+  runs: ImportRun[];
+  sources: { id: string; name: string }[];
+}
+
+export function listImportRuns(): Promise<ImportList> {
+  return request("/api/import-runs");
+}
+
+export interface ImportResult {
+  run_id: number;
+  status: "done" | "held";
+  records: number;
+  new: number;
+  changed: number;
+  removed: number;
+  issues: number;
+  auto_applied: number;
+  pending_approval: number;
+}
+
+/** Imports a supplier file for a source. */
+export function uploadImport(sourceID: string, file: File): Promise<ImportResult> {
+  return request(`/api/sources/${encodeURIComponent(sourceID)}/imports`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
 }
 
 export interface PricingConfig {

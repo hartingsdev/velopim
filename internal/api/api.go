@@ -160,6 +160,7 @@ func New(pool *pgxpool.Pool, actor string, store shopsync.Store, opts ...Option)
 	mux.HandleFunc("POST /api/tasks/{id}/decision", s.decideTask)
 	mux.HandleFunc("GET /api/import-runs", s.listImportRuns)
 	mux.HandleFunc("POST /api/import-runs/{id}/confirm", s.confirmImportRun)
+	mux.HandleFunc("POST /api/sources/{id}/imports", s.uploadImport)
 	mux.HandleFunc("GET /api/products", s.listProducts)
 	mux.HandleFunc("GET /api/supplier-items", s.searchSupplierItems)
 	mux.HandleFunc("GET /api/products/{id}", s.getProduct)
@@ -297,7 +298,49 @@ func (s *server) listImportRuns(w http.ResponseWriter, r *http.Request) {
 			RecordCount: row.RecordCount, IssueCount: row.IssueCount, Summary: row.Summary, Error: row.Error,
 			StartedAt: row.StartedAt, FinishedAt: row.FinishedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+	sources, err := db.New(s.pool).ListSources(r.Context())
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	sourceList := make([]Source, 0, len(sources))
+	for _, src := range sources {
+		sourceList = append(sourceList, Source{ID: src.ID, Name: src.Name})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": out, "sources": sourceList})
+}
+
+// maxUpload bounds an uploaded supplier file.
+const maxUpload = 256 << 20
+
+// uploadImport imports a supplier file sent as the request body. The body is
+// the file itself (application/octet-stream); a form post from another
+// website cannot produce that content type without the browser asking first.
+func (s *server) uploadImport(w http.ResponseWriter, r *http.Request) {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/octet-stream" {
+		writeError(w, http.StatusUnsupportedMediaType, "content type must be application/octet-stream")
+		return
+	}
+	conn, err := importer.ConnectorFor(r.Context(), db.New(s.pool), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown source or unusable connector configuration")
+		return
+	}
+	res, err := importer.Run(r.Context(), s.pool, conn, http.MaxBytesReader(w, r.Body, maxUpload), importer.Options{RawDir: s.rawDir})
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "file is too large")
+	case err != nil:
+		// A file the connector cannot read is the sender's problem; the
+		// message names what is wrong with it.
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "import failed", "issues": []string{err.Error()}})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"run_id": res.RunID, "status": res.Status, "records": res.Records, "new": res.New, "changed": res.Changed,
+			"removed": res.Removed, "issues": res.Issues, "auto_applied": res.AutoApplied, "pending_approval": res.PendingApproval,
+		})
+	}
 }
 
 // readJSON decodes a JSON request body. It answers the request itself and

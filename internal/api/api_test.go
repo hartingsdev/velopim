@@ -744,3 +744,50 @@ func TestSyncEndpoint(t *testing.T) {
 		t.Errorf("publishing sync: sent %d, %s", store.sent, rec.Body)
 	}
 }
+
+func TestUploadImport(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester", nil, WithRawDir(t.TempDir()))
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind, connector_config) VALUES
+		  ('example', 'Beispiel', 'csvfile', '{"delimiter": ";", "decimal_comma": true, "columns": {"sku": "Nr", "brand": "Marke", "name": "Name", "cost": "EK"}}'),
+		  ('broken', 'Kaputt', 'csvfile', '{}');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	file := "Nr;Marke;Name;EK\n1;Beispielrad;City 3;500,00\n2;Beispielrad;City 3;500,00\n"
+	const octet = "application/octet-stream"
+
+	cases := []struct {
+		name, path, contentType, body string
+		want                          int
+	}{
+		{"form upload from another site", "/api/sources/example/imports", "multipart/form-data; boundary=x", file, http.StatusUnsupportedMediaType},
+		{"unknown source", "/api/sources/nobody/imports", octet, file, http.StatusNotFound},
+		{"source without usable configuration", "/api/sources/broken/imports", octet, file, http.StatusNotFound},
+		{"file without the article number column", "/api/sources/example/imports", octet, "A;B\n1;2\n", http.StatusUnprocessableEntity},
+		{"valid file", "/api/sources/example/imports", octet, file, http.StatusOK},
+	}
+	var last *httptest.ResponseRecorder
+	for _, c := range cases {
+		last = do(t, h, "POST", c.path, c.contentType, c.body)
+		if last.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, last.Code, c.want, last.Body)
+		}
+	}
+	if body := last.Body.String(); !strings.Contains(body, `"new":2`) || !strings.Contains(body, `"pending_approval":1`) || !strings.Contains(body, `"status":"done"`) {
+		t.Errorf("import result: %s", body)
+	}
+	// The failed attempts left no import run behind; the model task exists.
+	var runs, tasks int
+	if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM import_run), (SELECT count(*) FROM task WHERE status = 'open')`).Scan(&runs, &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 1 || tasks < 1 {
+		t.Errorf("runs = %d, open tasks = %d", runs, tasks)
+	}
+	// The import list names the sources for the upload form.
+	if rec := do(t, h, "GET", "/api/import-runs", "", ""); !strings.Contains(rec.Body.String(), `"sources":[`) || !strings.Contains(rec.Body.String(), `"Beispiel"`) {
+		t.Errorf("import list: %s", rec.Body)
+	}
+}
