@@ -45,7 +45,7 @@ Die Fachlogik (`rules`, `pricing`, `availability`, `actions`, `catalog`, `shopif
 2. **Normalisieren:** Jeder Datensatz wird ein `supplier_item`. Eine neue Rohversion entsteht nur, wenn sich der Inhalt geändert hat. Die Verfügbarkeit wird über das Mapping der Quelle bestimmt.
 3. **Vergleichen:** Unterschiede zum vorigen Stand werden Aktionen. Die Regel-Engine entscheidet: automatisch oder Freigabe. Eine Freigabe wird ein Task. Neue Artikel werden je Modell zu einer Aktion zusammengefasst ([22](decisions/0022-new-model-one-task.md)).
 4. **Übernehmen:** Freigegebene und automatische Aktionen ändern den eigenen Katalog und schreiben `field_change`. Neue Modelle legen Produkte und Varianten an, EK-Änderungen ändern den Verkaufspreis um denselben Betrag, Beschreibung, Bilder, UVP und EAN werden kopiert. Verfügbarkeit wird nicht kopiert ([27](decisions/0027-availability-is-live.md)).
-5. **Projizieren:** Aus dem Katalog wird die Shopify-Projektion berechnet und mit dem letzten Sync-Stand verglichen.
+5. **Projizieren:** Aus dem Katalog wird die Shopify-Projektion berechnet (`shopify.Project`) und mit dem letzten Sync-Stand verglichen (`shopify.Diff`). Der Reiter „Shopify“ zeigt das Ergebnis als Vorschau.
 6. **Synchronisieren:** Unterschiede gehen als Jobs an Shopify (idempotent, Rate Limits, Wiederholungen). Fehler erzeugen einen Task. *Noch nicht gebaut.*
 
 Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15](decisions/0015-hold-import-on-drop.md)), Ersetzen veralteter offener Aktionen ([16](decisions/0016-supersede-pending-actions.md)), Sammel-Task für Datenprobleme ([17](decisions/0017-collective-data-issue-task.md)).
@@ -71,6 +71,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `POST /api/products/{id}/notes` | interne Notiz anlegen |
 | `GET /api/rules`, `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | Regeln der Regel-Engine; 422 bei ungültiger Regel; Löschen einer Regel, die schon entschieden hat, gibt 409 (stattdessen ausschalten) |
 | `GET /api/usage-policies`, `PUT /api/usage-policies`, `DELETE /api/usage-policies?source_id=…&brand=…&field_group=…` | Nutzungsrichtlinie; „verwenden“ für alle Marken wird als fehlender Eintrag gespeichert |
+| `GET /api/sync-plan` | Dry-Run: was für die ausgewählten Produkte an Shopify gesendet würde. Sendet und speichert nichts |
 | `GET /api/pricing-rules` | Kalkulationsregeln |
 | `PUT /api/pricing-rules` | Regel für Marke und Kategorie anlegen oder ersetzen; 422 bei ungültiger Kalkulation |
 | `DELETE /api/pricing-rules/{id}` | Regel löschen |

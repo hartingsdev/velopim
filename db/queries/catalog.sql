@@ -205,3 +205,21 @@ DELETE FROM usage_policy WHERE source_id = $1 AND brand = $2 AND field_group = $
 
 -- name: GetSupplierItemScope :one
 SELECT source_id, brand FROM supplier_item WHERE id = $1;
+
+-- name: ListWantedProducts :many
+-- Products selected for the store, with what Shopify last confirmed.
+SELECT p.id, p.brand, p.name, p.category, p.status, p.description_html, p.image_urls, p.option_names,
+       l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
+FROM product p JOIN shopify_listing l ON l.product_id = p.id
+WHERE l.wanted
+ORDER BY p.brand, p.model_key, p.id;
+
+-- name: ListVariantsForProjection :many
+-- Variants with the availability of their preferred supplier article.
+SELECT v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
+       s.availability, s.active AS supplier_active
+FROM variant v
+LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = ANY(sqlc.arg(product_ids)::bigint[])
+ORDER BY v.product_id, v.id;

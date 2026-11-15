@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   getProduct,
+  getSyncPlan,
   listImportRuns,
   listPricingRules,
   listRules,
@@ -13,6 +14,7 @@ import {
   type ProductDetail as ProductDetailData,
   type ProductList,
   type RuleList,
+  type SyncPlan,
   type TaskList,
   type UsagePolicyList,
 } from "./api";
@@ -24,6 +26,7 @@ import { Rules } from "./Rules";
 import { href, useRoute, type Route, type View } from "./route";
 import { Search, type SearchResults } from "./Search";
 import { Sources } from "./Sources";
+import { Sync } from "./Sync";
 import { Tasks } from "./Tasks";
 
 type Data =
@@ -34,6 +37,7 @@ type Data =
   | { view: "rules"; list: RuleList }
   | { view: "product"; detail: ProductDetailData }
   | { view: "sources"; list: UsagePolicyList }
+  | { view: "sync"; plan: SyncPlan }
   | { view: "search"; results: SearchResults };
 
 async function fetchData({ view, params }: Route): Promise<Data> {
@@ -50,6 +54,8 @@ async function fetchData({ view, params }: Route): Promise<Data> {
       return { view, detail: await getProduct(params.id ?? "") };
     case "sources":
       return { view, list: await listUsagePolicies() };
+    case "sync":
+      return { view, plan: await getSyncPlan() };
     case "search": {
       const q = (params.q ?? "").trim();
       if (!q) {
@@ -126,6 +132,7 @@ export function App() {
           {tab("tasks", "Aufgaben", openCount)}
           {tab("products", "Produkte")}
           {tab("imports", "Importe")}
+          {tab("sync", "Shopify")}
           {tab("sources", "Lieferanten")}
           {tab("rules", "Regeln")}
           {tab("pricing", "Kalkulation")}
@@ -161,6 +168,7 @@ export function App() {
           <ProductDetail key={key} detail={current.detail} onChanged={load} onError={setError} />
         )}
         {current?.view === "sources" && <Sources list={current.list} onChanged={load} onError={setError} />}
+        {current?.view === "sync" && <Sync plan={current.plan} />}
         {current?.view === "search" && <Search results={current.results} />}
       </main>
     </>

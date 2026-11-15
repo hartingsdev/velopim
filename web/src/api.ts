@@ -366,3 +366,47 @@ export function saveUsagePolicy(policy: UsagePolicy): Promise<void> {
 export function deleteUsagePolicy(p: Pick<UsagePolicy, "source_id" | "brand" | "field_group">): Promise<void> {
   return request(`/api/usage-policies${queryString(p)}`, { method: "DELETE" });
 }
+
+export interface SyncOp {
+  kind: "create_product" | "update_product" | "set_images" | "set_metafields" | "create_variant" | "update_variant" | "delete_variant";
+  sku?: string;
+  fields?: string[];
+}
+
+export interface PlanProduct {
+  product_id: number;
+  name: string;
+  in_shopify: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+  ops: SyncOp[];
+  issues: string[];
+  projection: {
+    title: string;
+    description_html: string;
+    vendor: string;
+    product_type: string;
+    published: boolean;
+    options: string[];
+    image_urls: string[];
+    variants: {
+      sku: string;
+      barcode: string;
+      option_values: string[];
+      price_cents: number;
+      compare_at_cents: number;
+      sellable: boolean;
+      delivery_text: string;
+    }[];
+  };
+}
+
+export interface SyncPlan {
+  store_configured: boolean;
+  write_enabled: boolean;
+  products: PlanProduct[];
+}
+
+export function getSyncPlan(): Promise<SyncPlan> {
+  return request("/api/sync-plan");
+}

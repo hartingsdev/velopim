@@ -790,6 +790,57 @@ func (q *Queries) ListUsagePolicies(ctx context.Context) ([]UsagePolicy, error) 
 	return items, nil
 }
 
+const listVariantsForProjection = `-- name: ListVariantsForProjection :many
+SELECT v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
+       s.availability, s.active AS supplier_active
+FROM variant v
+LEFT JOIN variant_supplier_item vs ON vs.variant_id = v.id AND vs.preferred
+LEFT JOIN supplier_item s ON s.id = vs.supplier_item_id
+WHERE v.product_id = ANY($1::bigint[])
+ORDER BY v.product_id, v.id
+`
+
+type ListVariantsForProjectionRow struct {
+	ProductID      int64
+	Sku            string
+	Ean            string
+	OptionValues   []byte
+	PriceCents     *int64
+	CompareAtCents *int64
+	Availability   []byte
+	SupplierActive *bool
+}
+
+// Variants with the availability of their preferred supplier article.
+func (q *Queries) ListVariantsForProjection(ctx context.Context, productIds []int64) ([]ListVariantsForProjectionRow, error) {
+	rows, err := q.db.Query(ctx, listVariantsForProjection, productIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListVariantsForProjectionRow
+	for rows.Next() {
+		var i ListVariantsForProjectionRow
+		if err := rows.Scan(
+			&i.ProductID,
+			&i.Sku,
+			&i.Ean,
+			&i.OptionValues,
+			&i.PriceCents,
+			&i.CompareAtCents,
+			&i.Availability,
+			&i.SupplierActive,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVariantsOfProducts = `-- name: ListVariantsOfProducts :many
 SELECT v.id, v.product_id, v.sku, v.ean, v.option_values, v.price_cents, v.compare_at_cents,
        s.sku AS supplier_sku, s.source_id, s.cost_cents, s.rrp_cents, s.availability_status
@@ -837,6 +888,63 @@ func (q *Queries) ListVariantsOfProducts(ctx context.Context, productIds []int64
 			&i.CostCents,
 			&i.RrpCents,
 			&i.AvailabilityStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWantedProducts = `-- name: ListWantedProducts :many
+SELECT p.id, p.brand, p.name, p.category, p.status, p.description_html, p.image_urls, p.option_names,
+       l.shopify_product_id, l.synced_projection, l.last_synced_at, l.last_error
+FROM product p JOIN shopify_listing l ON l.product_id = p.id
+WHERE l.wanted
+ORDER BY p.brand, p.model_key, p.id
+`
+
+type ListWantedProductsRow struct {
+	ID               int64
+	Brand            string
+	Name             string
+	Category         string
+	Status           string
+	DescriptionHtml  string
+	ImageUrls        []byte
+	OptionNames      []byte
+	ShopifyProductID *string
+	SyncedProjection []byte
+	LastSyncedAt     *time.Time
+	LastError        *string
+}
+
+// Products selected for the store, with what Shopify last confirmed.
+func (q *Queries) ListWantedProducts(ctx context.Context) ([]ListWantedProductsRow, error) {
+	rows, err := q.db.Query(ctx, listWantedProducts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWantedProductsRow
+	for rows.Next() {
+		var i ListWantedProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Brand,
+			&i.Name,
+			&i.Category,
+			&i.Status,
+			&i.DescriptionHtml,
+			&i.ImageUrls,
+			&i.OptionNames,
+			&i.ShopifyProductID,
+			&i.SyncedProjection,
+			&i.LastSyncedAt,
+			&i.LastError,
 		); err != nil {
 			return nil, err
 		}

@@ -623,3 +623,51 @@ func TestUsagePolicies(t *testing.T) {
 		t.Errorf("policies = %q, want %q", got, want)
 	}
 }
+
+func TestSyncPlanIsADryRun(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester")
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO supplier_item (source_id, sku, brand, name, cost_cents, availability, availability_status) VALUES
+		  ('example', '200-001', 'Beispielrad', 'City 3', 50000, '{"status": "in_stock"}', 'in_stock'),
+		  ('example', '200-002', 'Beispielrad', 'City 3', 50000, '{"status": "unavailable"}', 'unavailable');
+		INSERT INTO product (brand, name, category, description_html, option_names) VALUES
+		  ('Beispielrad', 'City 3', 'Citybike', '<p>Text</p>', '["Rahmenhöhe"]'),
+		  ('Beispielrad', 'Nicht gewählt', '', '', '[]');
+		INSERT INTO variant (product_id, sku, option_values, price_cents) VALUES (1, '10001', '["50"]', 89900), (1, '10002', '["54"]', 89900);
+		INSERT INTO variant_supplier_item (variant_id, supplier_item_id, preferred) VALUES (1, 1, true), (2, 2, true);
+		INSERT INTO shopify_listing (product_id, wanted) VALUES (1, true), (2, false);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, h, "GET", "/api/sync-plan", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync plan: %d %s", rec.Code, rec.Body)
+	}
+	var plan SyncPlan
+	if err := json.Unmarshal(rec.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Products) != 1 {
+		t.Fatalf("only wanted products are planned: %+v", plan.Products)
+	}
+	p := plan.Products[0]
+	if p.Name != "Beispielrad City 3" || p.InShopify || len(p.Ops) != 1 || p.Ops[0].Kind != "create_product" || len(p.Issues) != 0 {
+		t.Errorf("plan: %+v", p)
+	}
+	proj := p.Projection
+	if proj.Published || proj.Vendor != "Beispielrad" || proj.ProductType != "Citybike" || len(proj.Variants) != 2 ||
+		!proj.Variants[0].Sellable || proj.Variants[1].Sellable || proj.Variants[1].DeliveryText != "Derzeit nicht lieferbar" {
+		t.Errorf("projection: %+v", proj)
+	}
+	// The purchase price is internal and must not appear anywhere in the plan.
+	if strings.Contains(rec.Body.String(), "50000") || strings.Contains(rec.Body.String(), "cost") {
+		t.Errorf("plan leaks the purchase price: %s", rec.Body)
+	}
+	// Planning writes nothing.
+	var synced int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM shopify_listing WHERE synced_projection IS NOT NULL OR shopify_product_id IS NOT NULL`).Scan(&synced); err != nil || synced != 0 {
+		t.Errorf("dry run changed the listing (%d, %v)", synced, err)
+	}
+}

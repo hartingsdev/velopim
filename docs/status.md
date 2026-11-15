@@ -18,6 +18,7 @@
 | Regelpflege in der Oberfläche: anlegen, ändern, ein- und ausschalten, löschen; Vorlagen für häufige Regeln | `api`, `web` |
 | Produktansicht je Modell: Name, Beschreibung und Preise bearbeiten, „in den Store“ auswählen, interne Notizen, Herkunft und Verlauf jedes Feldes | `api`, `web` |
 | Nutzungsrichtlinie je Lieferant, Marke und Datengruppe, gepflegt im Reiter „Lieferanten“ | `catalog`, `importer`, `api`, `web` |
+| Shopify-Vorschau (Dry-Run): Projektion aus dem Katalog, Vergleich mit dem letzten Sync-Stand, geplante Änderungen und Ablehnungsgründe je ausgewähltem Produkt | `shopify`, `api`, `web` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
@@ -28,7 +29,8 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 ## Noch nicht begonnen
 - Trennmerkmale eines bestehenden Modells ändern; Bilder und Varianten von Hand bearbeiten
 - Veröffentlichen-Task ([25](decisions/0025-publish-task.md))
-- Shopify-API-Client mit Dry-Run
+- Shopify-API-Client: Token-Tausch (Client Credentials), GraphQL-Aufrufe, Rate Limits, Wiederholungen, Rückschreiben des Sync-Stands. Braucht den Development-Store ([Anleitung](shopify-dev-store.md))
+- Lieferzeit als Metafeld (Namespace und Key offen); der Text wird je Variante schon berechnet
 - Pflege von Quellen in der Oberfläche (Konnektor-Konfiguration und Verfügbarkeits-Mapping stehen nur in der Datenbank)
 - River-Jobs
 - Hartje-Konnektor (Format unbekannt)

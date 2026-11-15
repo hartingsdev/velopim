@@ -3,7 +3,7 @@
 ## Vom Betreiber zu klären
 - **Hartje-Zugang und Datenformat:** unbekannt (CSV- oder BMEcat-Feed, veloconnect, API?). Keine Annahmen treffen; bis zur Klärung gilt die Dateischnittstelle mit Testdaten. Am meisten hilft eine echte Beispieldatei.
 - **Varianten bei Hartje:** flach oder Eltern-Kind? Sind Modellname, Farbe und Rahmenform sauber genug für die Gruppierung?
-- **Development-Store und API-Token:** fehlen. Das Token kommt nur als Umgebungsvariable, nie in den Chat oder ins Repository.
+- **Development-Store:** fehlt. Einrichtung siehe [shopify-dev-store.md](shopify-dev-store.md); Client ID und Secret kommen nur in die `.env`, nie in den Chat oder ins Repository.
 - **Lieferzeit im Theme:** Namespace und Key des Metafelds.
 - **Kalkulation:** Die Werte pflegt der Betreiber unter „Kalkulation“; festgelegt hat er noch keine. In der lokalen Datenbank steht eine Testregel (Faktor 1,6, ,99, höchstens UVP), die keine Vorgabe ist.
 - **Bilder und Texte von Hartje:** Darf der Shop sie verwenden? Bis zur Klärung werden sie übernommen. Abstellen lässt es sich im Reiter „Lieferanten“ ([28](decisions/0028-usage-policy.md)).
@@ -28,5 +28,6 @@
 - **Gruppierung vergleicht exakt:** „Schwarz“ und „schwarz“ sind zwei Werte.
 - **Zeichensatz:** Der CSV-Konnektor erwartet UTF-8; Windows-1252 wird nicht unterstützt.
 - **Lieferzeit-Texte:** stehen fest im Code (`availability.Derive`), sollen konfigurierbar werden.
+- **Shopify-Vorschau ungeprüft:** Die Projektion ist nie gegen ein echtes Shopify gelaufen. Feldnamen, Grenzen und das Verhalten von Entwürfen sind Annahmen, bis der Client gegen den Development-Store läuft.
 - **Shopify-Grenzen:** 3 Optionen und 2048 Varianten je Produkt stehen als Konstanten im Code und sind gegen die verwendete API-Version zu prüfen.
 - **Testdaten:** `testdata/example_supplier.csv` ist erfunden und kein Hartje-Format.

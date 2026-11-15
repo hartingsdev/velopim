@@ -217,7 +217,8 @@ function ShopProductCard({ product, onChanged, onError }: { product: ShopProduct
       )}
       {product.wanted && (
         <p className="hint">
-          Für den Store ausgewählt. Zu Shopify übertragen wird noch nichts: Der Sync ist noch nicht gebaut.
+          Für den Store ausgewählt. Was gesendet würde, steht unter <a href={href("sync")}>Shopify</a>; übertragen wird
+          noch nichts.
         </p>
       )}
     </form>

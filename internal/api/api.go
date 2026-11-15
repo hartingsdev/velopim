@@ -151,6 +151,7 @@ func New(pool *pgxpool.Pool, actor string) http.Handler {
 	mux.HandleFunc("GET /api/usage-policies", s.listUsagePolicies)
 	mux.HandleFunc("PUT /api/usage-policies", s.putUsagePolicy)
 	mux.HandleFunc("DELETE /api/usage-policies", s.deleteUsagePolicy)
+	mux.HandleFunc("GET /api/sync-plan", s.syncPlan)
 	mux.HandleFunc("GET /api/pricing-rules", s.listPricingRules)
 	mux.HandleFunc("PUT /api/pricing-rules", s.putPricingRule)
 	mux.HandleFunc("DELETE /api/pricing-rules/{id}", s.deletePricingRule)
