@@ -56,7 +56,7 @@ export function Search({ results }: { results: SearchResults }) {
           <ul className="results">
             {products.products.slice(0, 10).map((p) => (
               <li key={p.id}>
-                <a href={href("products", { q: p.model_name || p.name })}>
+                <a href={href("product", { id: String(p.id) })}>
                   {p.brand} {p.name}
                 </a>
                 <span className="meta">

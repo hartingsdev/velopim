@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 // The address is "#view?key=value&…", so every list with its search and
 // filters can be linked, reloaded and reached with the back button.
 
-export const views = ["tasks", "products", "imports", "rules", "pricing", "search"] as const;
+export const views = ["tasks", "products", "product", "imports", "rules", "pricing", "search"] as const;
 export type View = (typeof views)[number];
 export type Params = Record<string, string | undefined>;
 

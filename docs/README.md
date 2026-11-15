@@ -7,6 +7,7 @@
 | [status.md](status.md) | Was fertig ist, was fehlt, MVP-Umfang |
 | [open-questions.md](open-questions.md) | Ungeklärte Fragen und bekannte Schwächen |
 | [decisions/](decisions/README.md) | Architekturentscheidungen, je eine Datei |
+| [shopify-dev-store.md](shopify-dev-store.md) | Development-Store und Zugangsdaten einrichten |
 
 Befehle zum Bauen, Testen und Starten stehen in der [CLAUDE.md](../CLAUDE.md).
 

@@ -172,8 +172,12 @@ type Product struct {
 	ModelKey    string    `json:"model_key"`
 	ModelName   string    `json:"model_name"`
 	// Split holds the values this product was separated by for the shop.
-	Split    []catalog.AxisValue `json:"split"`
-	Variants []Variant           `json:"variants"`
+	Split       []catalog.AxisValue `json:"split"`
+	Description string              `json:"description_html"`
+	ImageURLs   []string            `json:"image_urls"`
+	// Wanted says the product is selected for the store.
+	Wanted   bool      `json:"wanted"`
+	Variants []Variant `json:"variants"`
 }
 
 // ProductList is the response of GET /api/products.
@@ -217,15 +221,27 @@ func (s *server) listProducts(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	out := ProductList{Products: make([]Product, 0, len(rows)), Total: counts.Total, Unpriced: counts.Unpriced}
+	products, err := buildProducts(r.Context(), q, rows)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ProductList{Products: products, Total: counts.Total, Unpriced: counts.Unpriced})
+}
+
+// buildProducts turns product rows into API products with their variants.
+func buildProducts(ctx context.Context, q *db.Queries, rows []db.ListProductsRow) ([]Product, error) {
+	out := make([]Product, 0, len(rows))
 	ids := make([]int64, 0, len(rows))
 	index := map[int64]int{}
 	for i, row := range rows {
 		p := Product{ID: row.ID, Brand: row.Brand, Name: row.Name, ModelYear: row.ModelYear, Category: row.Category,
 			Status: row.Status, OptionNames: []string{}, CreatedAt: row.CreatedAt, ModelKey: row.ModelKey,
-			Split: []catalog.AxisValue{}, Variants: []Variant{}}
+			Split: []catalog.AxisValue{}, Variants: []Variant{}, Description: row.DescriptionHtml,
+			ImageURLs: []string{}, Wanted: row.Wanted}
 		_ = json.Unmarshal(row.OptionNames, &p.OptionNames)
 		_ = json.Unmarshal(row.SplitValues, &p.Split)
+		_ = json.Unmarshal(row.ImageUrls, &p.ImageURLs)
 		// The product name is the model name followed by the split values.
 		p.ModelName = p.Name
 		for i := len(p.Split) - 1; i >= 0; i-- {
@@ -233,24 +249,23 @@ func (s *server) listProducts(w http.ResponseWriter, r *http.Request) {
 				p.ModelName = strings.TrimSuffix(p.ModelName, " "+v)
 			}
 		}
-		out.Products = append(out.Products, p)
+		out = append(out, p)
 		ids = append(ids, row.ID)
 		index[row.ID] = i
 	}
-	variants, err := q.ListVariantsOfProducts(r.Context(), ids)
+	variants, err := q.ListVariantsOfProducts(ctx, ids)
 	if err != nil {
-		internalError(w, err)
-		return
+		return nil, err
 	}
 	for _, v := range variants {
 		item := Variant{ID: v.ID, SKU: v.Sku, EAN: v.Ean, OptionValues: []string{}, PriceCents: v.PriceCents,
 			CompareAtCents: v.CompareAtCents, SupplierSKU: v.SupplierSku, SourceID: v.SourceID, CostCents: v.CostCents,
 			RRPCents: v.RrpCents, Availability: v.AvailabilityStatus}
 		_ = json.Unmarshal(v.OptionValues, &item.OptionValues)
-		p := &out.Products[index[v.ProductID]]
+		p := &out[index[v.ProductID]]
 		p.Variants = append(p.Variants, item)
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // SupplierItem is one article of a supplier as found by the search.

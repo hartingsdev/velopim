@@ -1,6 +1,6 @@
 import type { Product, ProductList } from "./api";
 import { availabilityLabel, axisLabel, formatPrice, productStatusLabel } from "./format";
-import { Chip, SearchBox, type Params } from "./route";
+import { Chip, href, SearchBox, type Params } from "./route";
 
 interface Model {
   key: string;
@@ -73,7 +73,9 @@ function ModelCard({ model }: { model: Model }) {
     <li className="task">
       <div className="task-head">
         <h2>
-          {model.brand} {model.name}
+          <a href={href("product", { id: String(first.id) })}>
+            {model.brand} {model.name}
+          </a>
         </h2>
         <span className="meta">
           {statuses.map((s) => (

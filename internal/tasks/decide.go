@@ -102,7 +102,7 @@ func apply(ctx context.Context, q *db.Queries, actionID int64, action db.DecideP
 			if err := q.SetActionProposedPrice(ctx, db.SetActionProposedPriceParams{ID: actionID, ProposedPriceCents: d.PriceCents}); err != nil {
 				return err
 			}
-			return catalog.SetVariantPrice(ctx, q, *action.VariantID, *d.PriceCents, actionID, d.Actor,
+			return catalog.SetVariantPrice(ctx, q, *action.VariantID, *d.PriceCents, &actionID, d.Actor,
 				"Preis bei der Freigabe korrigiert")
 		}
 		if hasProposal {

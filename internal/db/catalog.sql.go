@@ -28,6 +28,17 @@ func (q *Queries) CountProducts(ctx context.Context) (CountProductsRow, error) {
 	return i, err
 }
 
+const countUnpricedVariants = `-- name: CountUnpricedVariants :one
+SELECT count(*) FROM variant WHERE product_id = $1 AND price_cents IS NULL
+`
+
+func (q *Queries) CountUnpricedVariants(ctx context.Context, productID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnpricedVariants, productID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deletePricingRule = `-- name: DeletePricingRule :execrows
 DELETE FROM pricing_rule WHERE id = $1
 `
@@ -38,6 +49,17 @@ func (q *Queries) DeletePricingRule(ctx context.Context, id int64) (int64, error
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getListingWanted = `-- name: GetListingWanted :one
+SELECT coalesce((SELECT l.wanted FROM shopify_listing l WHERE l.product_id = $1), false)::bool AS wanted
+`
+
+func (q *Queries) GetListingWanted(ctx context.Context, productID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, getListingWanted, productID)
+	var wanted bool
+	err := row.Scan(&wanted)
+	return wanted, err
 }
 
 const getPricedVariantOfSupplierItem = `-- name: GetPricedVariantOfSupplierItem :one
@@ -67,6 +89,22 @@ func (q *Queries) GetProductImages(ctx context.Context, id int64) ([]byte, error
 	var image_urls []byte
 	err := row.Scan(&image_urls)
 	return image_urls, err
+}
+
+const getProductText = `-- name: GetProductText :one
+SELECT name, description_html FROM product WHERE id = $1
+`
+
+type GetProductTextRow struct {
+	Name            string
+	DescriptionHtml string
+}
+
+func (q *Queries) GetProductText(ctx context.Context, id int64) (GetProductTextRow, error) {
+	row := q.db.QueryRow(ctx, getProductText, id)
+	var i GetProductTextRow
+	err := row.Scan(&i.Name, &i.DescriptionHtml)
+	return i, err
 }
 
 const getVariantOfSupplierItem = `-- name: GetVariantOfSupplierItem :one
@@ -110,6 +148,17 @@ func (q *Queries) GetVariantPrice(ctx context.Context, id int64) (*int64, error)
 	var price_cents *int64
 	err := row.Scan(&price_cents)
 	return price_cents, err
+}
+
+const getVariantProduct = `-- name: GetVariantProduct :one
+SELECT product_id FROM variant WHERE id = $1
+`
+
+func (q *Queries) GetVariantProduct(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, getVariantProduct, id)
+	var product_id int64
+	err := row.Scan(&product_id)
+	return product_id, err
 }
 
 const insertCatalogFieldChange = `-- name: InsertCatalogFieldChange :exec
@@ -177,6 +226,23 @@ func (q *Queries) InsertProduct(ctx context.Context, arg InsertProductParams) (i
 		arg.SplitBy,
 		arg.SplitValues,
 	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertProductNote = `-- name: InsertProductNote :one
+INSERT INTO internal_note (entity_type, entity_id, body, author) VALUES ('product', $1, $2, $3) RETURNING id
+`
+
+type InsertProductNoteParams struct {
+	EntityID string
+	Body     string
+	Author   string
+}
+
+func (q *Queries) InsertProductNote(ctx context.Context, arg InsertProductNoteParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertProductNote, arg.EntityID, arg.Body, arg.Author)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -318,6 +384,75 @@ func (q *Queries) ListAllPricingRules(ctx context.Context) ([]PricingRule, error
 	return items, nil
 }
 
+const listFieldChangesOfProducts = `-- name: ListFieldChangesOfProducts :many
+SELECT fc.id, fc.entity_type, fc.entity_id, fc.field, fc.old_value, fc.new_value, fc.origin, fc.actor, fc.reason,
+       fc.created_at, v.sku AS variant_sku, coalesce(v.product_id, fc.entity_id)::bigint AS product_id,
+       r.name AS rule_name, src.name AS source_name
+FROM field_change fc
+LEFT JOIN variant v ON fc.entity_type = 'variant' AND v.id = fc.entity_id
+LEFT JOIN action a ON a.id = fc.action_id
+LEFT JOIN rule r ON r.id = a.rule_id
+LEFT JOIN supplier_item si ON si.id = a.supplier_item_id
+LEFT JOIN source src ON src.id = si.source_id
+WHERE (fc.entity_type = 'product' AND fc.entity_id = ANY($1::bigint[]))
+   OR (fc.entity_type = 'variant' AND v.product_id = ANY($1::bigint[]))
+ORDER BY fc.id DESC
+LIMIT 300
+`
+
+type ListFieldChangesOfProductsRow struct {
+	ID         int64
+	EntityType string
+	EntityID   int64
+	Field      string
+	OldValue   *string
+	NewValue   *string
+	Origin     string
+	Actor      *string
+	Reason     *string
+	CreatedAt  time.Time
+	VariantSku *string
+	ProductID  int64
+	RuleName   *string
+	SourceName *string
+}
+
+// History of products and their variants, newest first.
+func (q *Queries) ListFieldChangesOfProducts(ctx context.Context, productIds []int64) ([]ListFieldChangesOfProductsRow, error) {
+	rows, err := q.db.Query(ctx, listFieldChangesOfProducts, productIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFieldChangesOfProductsRow
+	for rows.Next() {
+		var i ListFieldChangesOfProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Field,
+			&i.OldValue,
+			&i.NewValue,
+			&i.Origin,
+			&i.Actor,
+			&i.Reason,
+			&i.CreatedAt,
+			&i.VariantSku,
+			&i.ProductID,
+			&i.RuleName,
+			&i.SourceName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModelSplits = `-- name: ListModelSplits :many
 SELECT DISTINCT model_key, split_by FROM product WHERE model_key = ANY($1::text[])
 `
@@ -347,10 +482,51 @@ func (q *Queries) ListModelSplits(ctx context.Context, modelKeys []string) ([]Li
 	return items, nil
 }
 
+const listProductNotes = `-- name: ListProductNotes :many
+SELECT id, entity_id, body, author, created_at FROM internal_note
+WHERE entity_type = 'product' AND entity_id = ANY($1::text[])
+ORDER BY id DESC
+`
+
+type ListProductNotesRow struct {
+	ID        int64
+	EntityID  string
+	Body      string
+	Author    string
+	CreatedAt time.Time
+}
+
+func (q *Queries) ListProductNotes(ctx context.Context, productIds []string) ([]ListProductNotesRow, error) {
+	rows, err := q.db.Query(ctx, listProductNotes, productIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductNotesRow
+	for rows.Next() {
+		var i ListProductNotesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EntityID,
+			&i.Body,
+			&i.Author,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProducts = `-- name: ListProducts :many
 SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
-       p.model_key, p.split_values
+       p.model_key, p.split_values, p.description_html, p.image_urls, coalesce(l.wanted, false)::bool AS wanted
 FROM product p
+LEFT JOIN shopify_listing l ON l.product_id = p.id
 WHERE ($1::text = '' OR p.status = $1::text)
   AND (NOT $2::bool
        OR EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL))
@@ -373,16 +549,19 @@ type ListProductsParams struct {
 }
 
 type ListProductsRow struct {
-	ID          int64
-	Brand       string
-	Name        string
-	ModelYear   *int32
-	Category    string
-	Status      string
-	OptionNames []byte
-	CreatedAt   time.Time
-	ModelKey    string
-	SplitValues []byte
+	ID              int64
+	Brand           string
+	Name            string
+	ModelYear       *int32
+	Category        string
+	Status          string
+	OptionNames     []byte
+	CreatedAt       time.Time
+	ModelKey        string
+	SplitValues     []byte
+	DescriptionHtml string
+	ImageUrls       []byte
+	Wanted          bool
 }
 
 // status ” means all; unpriced limits to products with a variant without
@@ -412,6 +591,9 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]L
 			&i.CreatedAt,
 			&i.ModelKey,
 			&i.SplitValues,
+			&i.DescriptionHtml,
+			&i.ImageUrls,
+			&i.Wanted,
 		); err != nil {
 			return nil, err
 		}
@@ -443,6 +625,67 @@ func (q *Queries) ListProductsOfModel(ctx context.Context, modelKey string) ([]L
 	for rows.Next() {
 		var i ListProductsOfModelRow
 		if err := rows.Scan(&i.ID, &i.SplitBy, &i.SplitValues); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductsOfSameModel = `-- name: ListProductsOfSameModel :many
+SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
+       p.model_key, p.split_values, p.description_html, p.image_urls, coalesce(l.wanted, false)::bool AS wanted
+FROM product p
+LEFT JOIN shopify_listing l ON l.product_id = p.id
+WHERE p.id = $1::bigint
+   OR (p.model_key <> '' AND p.model_key = (SELECT m.model_key FROM product m WHERE m.id = $1::bigint))
+ORDER BY p.id
+`
+
+type ListProductsOfSameModelRow struct {
+	ID              int64
+	Brand           string
+	Name            string
+	ModelYear       *int32
+	Category        string
+	Status          string
+	OptionNames     []byte
+	CreatedAt       time.Time
+	ModelKey        string
+	SplitValues     []byte
+	DescriptionHtml string
+	ImageUrls       []byte
+	Wanted          bool
+}
+
+// The product and, when it was cut from a model, its sibling products.
+func (q *Queries) ListProductsOfSameModel(ctx context.Context, id int64) ([]ListProductsOfSameModelRow, error) {
+	rows, err := q.db.Query(ctx, listProductsOfSameModel, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsOfSameModelRow
+	for rows.Next() {
+		var i ListProductsOfSameModelRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Brand,
+			&i.Name,
+			&i.ModelYear,
+			&i.Category,
+			&i.Status,
+			&i.OptionNames,
+			&i.CreatedAt,
+			&i.ModelKey,
+			&i.SplitValues,
+			&i.DescriptionHtml,
+			&i.ImageUrls,
+			&i.Wanted,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -566,6 +809,21 @@ func (q *Queries) SetActionProposedPrice(ctx context.Context, arg SetActionPropo
 	return err
 }
 
+const setListingWanted = `-- name: SetListingWanted :exec
+INSERT INTO shopify_listing (product_id, wanted) VALUES ($1, $2)
+ON CONFLICT (product_id) DO UPDATE SET wanted = EXCLUDED.wanted
+`
+
+type SetListingWantedParams struct {
+	ProductID int64
+	Wanted    bool
+}
+
+func (q *Queries) SetListingWanted(ctx context.Context, arg SetListingWantedParams) error {
+	_, err := q.db.Exec(ctx, setListingWanted, arg.ProductID, arg.Wanted)
+	return err
+}
+
 const setProductDescription = `-- name: SetProductDescription :exec
 UPDATE product SET description_html = $2, updated_at = now() WHERE id = $1
 `
@@ -591,6 +849,21 @@ type SetProductImagesParams struct {
 
 func (q *Queries) SetProductImages(ctx context.Context, arg SetProductImagesParams) error {
 	_, err := q.db.Exec(ctx, setProductImages, arg.ID, arg.ImageUrls)
+	return err
+}
+
+const setProductText = `-- name: SetProductText :exec
+UPDATE product SET name = $2, description_html = $3, updated_at = now() WHERE id = $1
+`
+
+type SetProductTextParams struct {
+	ID              int64
+	Name            string
+	DescriptionHtml string
+}
+
+func (q *Queries) SetProductText(ctx context.Context, arg SetProductTextParams) error {
+	_, err := q.db.Exec(ctx, setProductText, arg.ID, arg.Name, arg.DescriptionHtml)
 	return err
 }
 

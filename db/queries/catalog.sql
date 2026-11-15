@@ -36,8 +36,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- status '' means all; unpriced limits to products with a variant without
 -- sales price; q matches brand, name, own and supplier article numbers, EANs.
 SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
-       p.model_key, p.split_values
+       p.model_key, p.split_values, p.description_html, p.image_urls, coalesce(l.wanted, false)::bool AS wanted
 FROM product p
+LEFT JOIN shopify_listing l ON l.product_id = p.id
 WHERE (sqlc.arg(status)::text = '' OR p.status = sqlc.arg(status)::text)
   AND (NOT sqlc.arg(unpriced)::bool
        OR EXISTS (SELECT 1 FROM variant v WHERE v.product_id = p.id AND v.price_cents IS NULL))
@@ -138,3 +139,56 @@ UPDATE variant SET compare_at_cents = $2, updated_at = now() WHERE id = $1;
 
 -- name: SetVariantEAN :exec
 UPDATE variant SET ean = $2, updated_at = now() WHERE id = $1;
+
+-- name: ListProductsOfSameModel :many
+-- The product and, when it was cut from a model, its sibling products.
+SELECT p.id, p.brand, p.name, p.model_year, p.category, p.status, p.option_names, p.created_at,
+       p.model_key, p.split_values, p.description_html, p.image_urls, coalesce(l.wanted, false)::bool AS wanted
+FROM product p
+LEFT JOIN shopify_listing l ON l.product_id = p.id
+WHERE p.id = sqlc.arg(id)::bigint
+   OR (p.model_key <> '' AND p.model_key = (SELECT m.model_key FROM product m WHERE m.id = sqlc.arg(id)::bigint))
+ORDER BY p.id;
+
+-- name: ListFieldChangesOfProducts :many
+-- History of products and their variants, newest first.
+SELECT fc.id, fc.entity_type, fc.entity_id, fc.field, fc.old_value, fc.new_value, fc.origin, fc.actor, fc.reason,
+       fc.created_at, v.sku AS variant_sku, coalesce(v.product_id, fc.entity_id)::bigint AS product_id,
+       r.name AS rule_name, src.name AS source_name
+FROM field_change fc
+LEFT JOIN variant v ON fc.entity_type = 'variant' AND v.id = fc.entity_id
+LEFT JOIN action a ON a.id = fc.action_id
+LEFT JOIN rule r ON r.id = a.rule_id
+LEFT JOIN supplier_item si ON si.id = a.supplier_item_id
+LEFT JOIN source src ON src.id = si.source_id
+WHERE (fc.entity_type = 'product' AND fc.entity_id = ANY(sqlc.arg(product_ids)::bigint[]))
+   OR (fc.entity_type = 'variant' AND v.product_id = ANY(sqlc.arg(product_ids)::bigint[]))
+ORDER BY fc.id DESC
+LIMIT 300;
+
+-- name: ListProductNotes :many
+SELECT id, entity_id, body, author, created_at FROM internal_note
+WHERE entity_type = 'product' AND entity_id = ANY(sqlc.arg(product_ids)::text[])
+ORDER BY id DESC;
+
+-- name: InsertProductNote :one
+INSERT INTO internal_note (entity_type, entity_id, body, author) VALUES ('product', $1, $2, $3) RETURNING id;
+
+-- name: GetProductText :one
+SELECT name, description_html FROM product WHERE id = $1;
+
+-- name: SetProductText :exec
+UPDATE product SET name = $2, description_html = $3, updated_at = now() WHERE id = $1;
+
+-- name: CountUnpricedVariants :one
+SELECT count(*) FROM variant WHERE product_id = $1 AND price_cents IS NULL;
+
+-- name: GetListingWanted :one
+SELECT coalesce((SELECT l.wanted FROM shopify_listing l WHERE l.product_id = $1), false)::bool AS wanted;
+
+-- name: SetListingWanted :exec
+INSERT INTO shopify_listing (product_id, wanted) VALUES ($1, $2)
+ON CONFLICT (product_id) DO UPDATE SET wanted = EXCLUDED.wanted;
+
+-- name: GetVariantProduct :one
+SELECT product_id FROM variant WHERE id = $1;

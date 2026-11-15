@@ -487,3 +487,90 @@ func TestRules(t *testing.T) {
 		t.Errorf("delete of a used rule: %d, want 409", rec.Code)
 	}
 }
+
+func TestProductDetailAndEditing(t *testing.T) {
+	pool := dbtest.New(t)
+	h := New(pool, "tester")
+	const jsonType = "application/json"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO source (id, name, connector_kind) VALUES ('example', 'Beispiel', 'csvfile');
+		INSERT INTO supplier_item (source_id, sku, brand, name, model_year, color, frame_size, cost_cents, rrp_cents) VALUES
+		  ('example', '200-001', 'Beispielrad', 'City 3', 2027, 'rot', '50', 50000, 89900),
+		  ('example', '200-002', 'Beispielrad', 'City 3', 2027, 'blau', '50', 50000, 89900);
+		INSERT INTO action (type, status, new_value, decision_reason, model_key)
+		  VALUES ('new_product', 'pending_approval', 'Beispielrad City 3 (2027)', 'no rule matched, approval by default', 'm');
+		INSERT INTO action_item (action_id, supplier_item_id) SELECT 1, id FROM supplier_item;
+		INSERT INTO task (kind, title, priority, action_id) VALUES ('approve_action', 'Neues Modell prüfen', 2, 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	// Split by color; only the red variant gets a price.
+	if rec := do(t, h, "POST", "/api/tasks/1/decision", jsonType,
+		`{"approve":true,"split_by":["color"],"variant_prices":{"200-001":89900}}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body)
+	}
+	detail := func(id string) ProductDetail {
+		t.Helper()
+		rec := do(t, h, "GET", "/api/products/"+id, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET product %s: %d %s", id, rec.Code, rec.Body)
+		}
+		var d ProductDetail
+		if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+
+	// Asking for one product returns both products of the model.
+	d := detail("1")
+	if len(d.Products) != 2 || d.Products[0].Name != "City 3 blau" || d.Products[1].Name != "City 3 rot" || len(d.Notes) != 0 {
+		t.Fatalf("detail: %+v", d)
+	}
+	blue, red := d.Products[0], d.Products[1]
+
+	cases := []struct {
+		name, method, path, body string
+		want                     int
+	}{
+		{"empty name", "PATCH", "/api/products/1", `{"name":" "}`, http.StatusUnprocessableEntity},
+		{"unknown product", "PATCH", "/api/products/99", `{"name":"x"}`, http.StatusNotFound},
+		{"rename and describe", "PATCH", "/api/products/1", `{"name":"City 3 Blau","description_html":"<p>Neu</p>"}`, http.StatusNoContent},
+		{"into the store without price", "PATCH", "/api/products/" + strconv.FormatInt(blue.ID, 10), `{"wanted":true}`, http.StatusUnprocessableEntity},
+		{"into the store with price", "PATCH", "/api/products/" + strconv.FormatInt(red.ID, 10), `{"wanted":true}`, http.StatusNoContent},
+		{"price of zero", "PATCH", "/api/variants/" + strconv.FormatInt(blue.Variants[0].ID, 10), `{"price_cents":0}`, http.StatusUnprocessableEntity},
+		{"set a price", "PATCH", "/api/variants/" + strconv.FormatInt(blue.Variants[0].ID, 10), `{"price_cents":84900}`, http.StatusNoContent},
+		{"unknown variant", "PATCH", "/api/variants/99", `{"price_cents":100}`, http.StatusNotFound},
+		{"empty note", "POST", "/api/products/1/notes", `{"body":"  "}`, http.StatusUnprocessableEntity},
+		{"note", "POST", "/api/products/1/notes", `{"body":"Ansprechpartner: Herr Beispiel"}`, http.StatusNoContent},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, c.method, c.path, jsonType, c.body); rec.Code != c.want {
+			t.Errorf("%s: status %d, want %d (%s)", c.name, rec.Code, c.want, rec.Body)
+		}
+	}
+
+	d = detail("2")
+	blue, red = d.Products[0], d.Products[1]
+	if blue.Name != "City 3 Blau" || blue.Description != "<p>Neu</p>" || blue.Wanted || !red.Wanted ||
+		blue.Variants[0].PriceCents == nil || *blue.Variants[0].PriceCents != 84900 {
+		t.Errorf("after editing: blue %+v, red wanted %v", blue, red.Wanted)
+	}
+	if len(d.Notes) != 1 || d.Notes[0].Author != "tester" || d.Notes[0].Body != "Ansprechpartner: Herr Beispiel" {
+		t.Errorf("notes: %+v", d.Notes)
+	}
+	// The history says who changed what by hand.
+	var manual []string
+	for _, c := range d.History {
+		if c.Origin == "user" && c.Reason == nil || c.Reason != nil && *c.Reason == "Preis von Hand geändert" {
+			manual = append(manual, c.Field+"="+*c.New+" by "+*c.Actor)
+		}
+	}
+	want := "price_cents=84900 by tester, in_store=true by tester, description_html=<p>Neu</p> by tester, name=City 3 Blau by tester"
+	if got := strings.Join(manual, ", "); got != want {
+		t.Errorf("manual changes:\n got  %s\n want %s", got, want)
+	}
+	if rec := do(t, h, "GET", "/api/products/99", "", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown product: %d", rec.Code)
+	}
+}

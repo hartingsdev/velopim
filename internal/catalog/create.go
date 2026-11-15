@@ -246,7 +246,8 @@ func ShiftVariantPrice(ctx context.Context, q *db.Queries, variantID, delta int6
 }
 
 // SetVariantPrice sets a variant's sales price and records the change.
-func SetVariantPrice(ctx context.Context, q *db.Queries, variantID, price int64, actionID int64, actor, reason string) error {
+// actionID is nil when a person edits the price directly.
+func SetVariantPrice(ctx context.Context, q *db.Queries, variantID, price int64, actionID *int64, actor, reason string) error {
 	if price <= 0 {
 		return &BlockedError{Issues: []string{"Der Verkaufspreis muss größer als 0 sein"}}
 	}
@@ -263,7 +264,7 @@ func SetVariantPrice(ctx context.Context, q *db.Queries, variantID, price int64,
 	newValue := strconv.FormatInt(price, 10)
 	params := db.InsertCatalogFieldChangeParams{
 		EntityType: "variant", EntityID: variantID, Field: "price_cents", NewValue: &newValue,
-		Origin: "user", ActionID: &actionID, Actor: &actor, Reason: &reason}
+		Origin: "user", ActionID: actionID, Actor: &actor, Reason: &reason}
 	if old != nil {
 		oldValue := strconv.FormatInt(*old, 10)
 		params.OldValue = &oldValue

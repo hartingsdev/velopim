@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  getProduct,
   listImportRuns,
   listPricingRules,
   listRules,
@@ -8,12 +9,14 @@ import {
   searchSupplierItems,
   type ImportRun,
   type PricingRule,
+  type ProductDetail as ProductDetailData,
   type ProductList,
   type RuleList,
   type TaskList,
 } from "./api";
 import { ImportRuns } from "./ImportRuns";
 import { Pricing } from "./Pricing";
+import { ProductDetail } from "./ProductDetail";
 import { Products } from "./Products";
 import { Rules } from "./Rules";
 import { href, useRoute, type Route, type View } from "./route";
@@ -26,6 +29,7 @@ type Data =
   | { view: "imports"; runs: ImportRun[] }
   | { view: "pricing"; rules: PricingRule[] }
   | { view: "rules"; list: RuleList }
+  | { view: "product"; detail: ProductDetailData }
   | { view: "search"; results: SearchResults };
 
 async function fetchData({ view, params }: Route): Promise<Data> {
@@ -38,6 +42,8 @@ async function fetchData({ view, params }: Route): Promise<Data> {
       return { view, rules: await listPricingRules() };
     case "rules":
       return { view, list: await listRules() };
+    case "product":
+      return { view, detail: await getProduct(params.id ?? "") };
     case "search": {
       const q = (params.q ?? "").trim();
       if (!q) {
@@ -88,8 +94,10 @@ export function App() {
     void load();
   }, [load]);
 
+  // A single product belongs to the products tab.
+  const isActive = (target: View) => route.view === target || (target === "products" && route.view === "product");
   const tab = (target: View, label: string, count?: number | null) => (
-    <a href={href(target)} className={route.view === target ? "tab active" : "tab"} aria-current={route.view === target}>
+    <a href={href(target)} className={isActive(target) ? "tab active" : "tab"} aria-current={isActive(target)}>
       {label}
       {count != null && <span className="count">{count}</span>}
     </a>
@@ -142,6 +150,9 @@ export function App() {
           <Pricing rules={current.rules} params={route.params} onChanged={load} onError={setError} />
         )}
         {current?.view === "rules" && <Rules list={current.list} params={route.params} onChanged={load} onError={setError} />}
+        {current?.view === "product" && (
+          <ProductDetail key={key} detail={current.detail} onChanged={load} onError={setError} />
+        )}
         {current?.view === "search" && <Search results={current.results} />}
       </main>
     </>

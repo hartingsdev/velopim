@@ -290,3 +290,52 @@ export function saveRule(rule: Rule): Promise<Rule> {
 export function deleteRule(id: number): Promise<void> {
   return request(`/api/rules/${id}`, { method: "DELETE" });
 }
+
+export interface FieldChange {
+  id: number;
+  product_id: number;
+  variant_sku: string | null;
+  field: string;
+  old: string | null;
+  new: string | null;
+  origin: "import" | "rule" | "user" | "system";
+  actor: string | null;
+  rule: string | null;
+  source: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface Note {
+  id: number;
+  product_id: number;
+  body: string;
+  author: string;
+  created_at: string;
+}
+
+export interface ProductDetail {
+  products: (Product & { description_html: string; image_urls: string[]; wanted: boolean })[];
+  history: FieldChange[];
+  notes: Note[];
+}
+
+export function getProduct(id: string): Promise<ProductDetail> {
+  return request(`/api/products/${encodeURIComponent(id)}`);
+}
+
+function send(method: string, path: string, body: unknown): Promise<void> {
+  return request(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+export function updateProduct(id: number, change: { name?: string; description_html?: string; wanted?: boolean }): Promise<void> {
+  return send("PATCH", `/api/products/${id}`, change);
+}
+
+export function setVariantPrice(id: number, priceCents: number): Promise<void> {
+  return send("PATCH", `/api/variants/${id}`, { price_cents: priceCents });
+}
+
+export function addProductNote(id: number, body: string): Promise<void> {
+  return send("POST", `/api/products/${id}/notes`, { body });
+}
