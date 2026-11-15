@@ -65,6 +65,7 @@ Schutzmechanismen im Import: Halt bei auffällig vielen fehlenden Artikeln ([15]
 | `GET /api/import-runs` | die letzten 50 Importläufe mit Zusammenfassung |
 | `GET /api/products?status=…&unpriced=true&q=…` | Produkte mit Varianten, Preisen, bevorzugtem Lieferantenartikel und Modellzugehörigkeit (höchstens 200) |
 | `GET /api/supplier-items?q=…` | Suche in allen Lieferantenartikeln (höchstens 50) |
+| `GET /api/rules`, `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | Regeln der Regel-Engine; 422 bei ungültiger Regel; Löschen einer Regel, die schon entschieden hat, gibt 409 (stattdessen ausschalten) |
 | `GET /api/pricing-rules` | Kalkulationsregeln |
 | `PUT /api/pricing-rules` | Regel für Marke und Kategorie anlegen oder ersetzen; 422 bei ungültiger Kalkulation |
 | `DELETE /api/pricing-rules/{id}` | Regel löschen |

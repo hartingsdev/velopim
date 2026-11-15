@@ -426,3 +426,64 @@ func TestSearchAndFilters(t *testing.T) {
 		t.Errorf("empty search: %v %+v", err, items.Items)
 	}
 }
+
+func TestRules(t *testing.T) {
+	pool := dbtest.New(t)
+	seed(t, pool) // rule 1 "prices need approval" has decided an action
+	h := New(pool, "tester")
+	const jsonType = "application/json"
+
+	create := `{"name":"Senkungen weitergeben","enabled":true,"action_type":"price_change","scope":{"source_id":"example","brand":"Beispielrad"},
+		"conditions":[{"fact":"cost_change_cents","op":"lt","value":0}],"outcome":"auto","guard":false}`
+	rec := do(t, h, "POST", "/api/rules", jsonType, create)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	for name, body := range map[string]string{
+		"no name":         `{"name":"","action_type":"price_change","outcome":"auto"}`,
+		"automatic guard": `{"name":"x","action_type":"price_change","outcome":"auto","guard":true}`,
+		"unknown fact":    `{"name":"x","action_type":"price_change","outcome":"auto","conditions":[{"fact":"moon","op":"lt","value":1}]}`,
+	} {
+		if rec := do(t, h, "POST", "/api/rules", jsonType, body); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: %d, want 422", name, rec.Code)
+		}
+	}
+
+	var list RuleList
+	rec = do(t, h, "GET", "/api/rules", "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Rules) != 2 || len(list.Sources) != 1 || list.Sources[0].ID != "example" {
+		t.Fatalf("list: %+v", list)
+	}
+	var created int64
+	for _, r := range list.Rules {
+		if r.Name == "Senkungen weitergeben" {
+			created = r.ID
+			if !r.Enabled || r.Scope.Brand != "Beispielrad" || len(r.Conditions) != 1 || r.Conditions[0].Fact != "cost_change_cents" {
+				t.Errorf("created rule: %+v", r)
+			}
+		}
+	}
+	path := "/api/rules/" + strconv.FormatInt(created, 10)
+
+	// Disable it, then delete it. The seeded rule has decided an action and
+	// can only be disabled.
+	if rec := do(t, h, "PUT", path, jsonType, strings.Replace(create, `"enabled":true`, `"enabled":false`, 1)); rec.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	}
+	var enabled bool
+	if err := pool.QueryRow(context.Background(), `SELECT enabled FROM rule WHERE id = $1`, created).Scan(&enabled); err != nil || enabled {
+		t.Errorf("rule still enabled (%v)", err)
+	}
+	if rec := do(t, h, "DELETE", path, "", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d", rec.Code)
+	}
+	if rec := do(t, h, "PUT", path, jsonType, create); rec.Code != http.StatusNotFound {
+		t.Errorf("update of a deleted rule: %d", rec.Code)
+	}
+	if rec := do(t, h, "DELETE", "/api/rules/1", "", ""); rec.Code != http.StatusConflict {
+		t.Errorf("delete of a used rule: %d, want 409", rec.Code)
+	}
+}

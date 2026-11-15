@@ -3,7 +3,12 @@
 // (price change, margin, ...) and pass them in.
 package rules
 
-import "sort"
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // ActionType is the kind of change an action proposes.
 type ActionType string
@@ -206,4 +211,40 @@ func specificity(s Scope) int {
 		n++
 	}
 	return n
+}
+
+// Validate reports the first reason a rule cannot be stored.
+func (r Rule) Validate() error {
+	if strings.TrimSpace(r.Name) == "" {
+		return errors.New("rules: name is required")
+	}
+	switch r.ActionType {
+	case NewProduct, PriceChange, AvailabilityChange, DescriptionChange, ImagesChange, Deactivation, AttributeChange:
+	default:
+		return fmt.Errorf("rules: unknown action type %q", r.ActionType)
+	}
+	switch r.Outcome {
+	case Auto, Approval:
+	default:
+		return fmt.Errorf("rules: unknown outcome %q", r.Outcome)
+	}
+	if r.Guard && r.Outcome != Approval {
+		return errors.New("rules: a guard rule can only require approval")
+	}
+	for _, c := range r.Conditions {
+		switch c.Fact {
+		case PriceChangePct, PriceChangeAbsPct, MarginPct, CostChangeCents:
+		default:
+			return fmt.Errorf("rules: unknown fact %q", c.Fact)
+		}
+		if r.ActionType != PriceChange {
+			return fmt.Errorf("rules: conditions are only available for price changes, not for %q", r.ActionType)
+		}
+		switch c.Op {
+		case LT, LTE, GT, GTE:
+		default:
+			return fmt.Errorf("rules: unknown operator %q", c.Op)
+		}
+	}
+	return nil
 }

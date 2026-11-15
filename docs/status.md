@@ -15,6 +15,7 @@
 | Shopify-Projektion und Diff | `shopify` |
 | Betragsgleiche Preisänderung: EK-Änderung schlägt denselben Betrag beim Verkaufspreis vor; Freigabe oder Regel ändert den Preis | `importer`, `tasks`, `catalog` |
 | Übernahme von Beschreibung, Bildern, UVP und EAN in den Katalog bei Freigabe oder per Regel | `catalog` |
+| Regelpflege in der Oberfläche: anlegen, ändern, ein- und ausschalten, löschen; Vorlagen für häufige Regeln | `api`, `web` |
 | HTTP-API für Tasks, Importläufe, Produkte, Kalkulationsregeln und Suche in Lieferantenartikeln | `api` |
 | Suche und Filter: Aufgaben nach Status, Kategorie und Text; Produkte nach Status, „ohne Preis“ und Text; Suche in Importen und Kalkulation; übergreifende Suche über Aufgaben, Produkte und Lieferantenartikel | `api`, `web` |
 | Import-Befehl `velopim import <quelle> <datei>` | `cmd/velopim` |
@@ -28,7 +29,7 @@ Die Oberfläche wurde im Browser mit den erfundenen Beispieldaten geprüft, nich
 - Nutzungsrichtlinie in der Pipeline
 - Shopify-API-Client mit Dry-Run
 - Produktansicht mit Feldherkunft und internen Notizen (die Produktliste zeigt bisher nur Varianten und Preise)
-- Pflege von Regeln und Quellen in der Oberfläche (Regeln stehen bisher nur in der Datenbank)
+- Pflege von Quellen in der Oberfläche (Konnektor-Konfiguration und Verfügbarkeits-Mapping stehen nur in der Datenbank)
 - River-Jobs
 - Hartje-Konnektor (Format unbekannt)
 

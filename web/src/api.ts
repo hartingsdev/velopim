@@ -243,3 +243,50 @@ export async function searchSupplierItems(q: string): Promise<SupplierItem[]> {
   const body = await request<{ items: SupplierItem[] }>(`/api/supplier-items${queryString({ q })}`);
   return body.items;
 }
+
+export type RuleActionType =
+  | "new_product"
+  | "price_change"
+  | "availability_status_change"
+  | "description_change"
+  | "images_change"
+  | "deactivation"
+  | "attribute_change";
+
+export interface RuleCondition {
+  fact: "price_change_pct" | "price_change_abs_pct" | "margin_pct" | "cost_change_cents";
+  op: "lt" | "lte" | "gt" | "gte";
+  value: number;
+}
+
+export interface Rule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  action_type: RuleActionType;
+  scope: { source_id?: string; brand?: string; category?: string };
+  conditions: RuleCondition[];
+  outcome: "auto" | "approval";
+  guard: boolean;
+}
+
+export interface RuleList {
+  rules: Rule[];
+  sources: { id: string; name: string }[];
+}
+
+export function listRules(): Promise<RuleList> {
+  return request("/api/rules");
+}
+
+export function saveRule(rule: Rule): Promise<Rule> {
+  return request(rule.id ? `/api/rules/${rule.id}` : "/api/rules", {
+    method: rule.id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deleteRule(id: number): Promise<void> {
+  return request(`/api/rules/${id}`, { method: "DELETE" });
+}

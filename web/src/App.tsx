@@ -2,17 +2,20 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   listImportRuns,
   listPricingRules,
+  listRules,
   listProducts,
   listTasks,
   searchSupplierItems,
   type ImportRun,
   type PricingRule,
   type ProductList,
+  type RuleList,
   type TaskList,
 } from "./api";
 import { ImportRuns } from "./ImportRuns";
 import { Pricing } from "./Pricing";
 import { Products } from "./Products";
+import { Rules } from "./Rules";
 import { href, useRoute, type Route, type View } from "./route";
 import { Search, type SearchResults } from "./Search";
 import { Tasks } from "./Tasks";
@@ -22,6 +25,7 @@ type Data =
   | { view: "products"; products: ProductList }
   | { view: "imports"; runs: ImportRun[] }
   | { view: "pricing"; rules: PricingRule[] }
+  | { view: "rules"; list: RuleList }
   | { view: "search"; results: SearchResults };
 
 async function fetchData({ view, params }: Route): Promise<Data> {
@@ -32,6 +36,8 @@ async function fetchData({ view, params }: Route): Promise<Data> {
       return { view, runs: await listImportRuns() };
     case "pricing":
       return { view, rules: await listPricingRules() };
+    case "rules":
+      return { view, list: await listRules() };
     case "search": {
       const q = (params.q ?? "").trim();
       if (!q) {
@@ -57,7 +63,8 @@ export function App() {
   const route = useRoute();
   // What to fetch. Imports and rules are filtered in the browser, so their
   // search text is not part of it.
-  const serverSide = route.view === "imports" || route.view === "pricing" ? { view: route.view, params: {} } : route;
+  const browserFiltered = route.view === "imports" || route.view === "pricing" || route.view === "rules";
+  const serverSide = browserFiltered ? { view: route.view, params: {} } : route;
   const key = href(serverSide.view, serverSide.params);
 
   const [data, setData] = useState<{ key: string; data: Data } | null>(null);
@@ -105,6 +112,7 @@ export function App() {
           {tab("tasks", "Aufgaben", openCount)}
           {tab("products", "Produkte")}
           {tab("imports", "Importe")}
+          {tab("rules", "Regeln")}
           {tab("pricing", "Kalkulation")}
         </nav>
         <form className="global-search" role="search" onSubmit={search}>
@@ -133,6 +141,7 @@ export function App() {
         {current?.view === "pricing" && (
           <Pricing rules={current.rules} params={route.params} onChanged={load} onError={setError} />
         )}
+        {current?.view === "rules" && <Rules list={current.list} params={route.params} onChanged={load} onError={setError} />}
         {current?.view === "search" && <Search results={current.results} />}
       </main>
     </>

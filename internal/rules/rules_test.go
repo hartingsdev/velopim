@@ -96,3 +96,33 @@ func TestEvaluateIsOrderIndependent(t *testing.T) {
 		t.Errorf("order changed the decision: %+v vs %+v", got, want)
 	}
 }
+
+func TestValidate(t *testing.T) {
+	ok := Rule{Name: "x", ActionType: PriceChange, Outcome: Auto}
+	cases := []struct {
+		name   string
+		change func(*Rule)
+		valid  bool
+	}{
+		{"plain rule", func(*Rule) {}, true},
+		{"with condition", func(r *Rule) { r.Conditions = []Condition{{CostChangeCents, LT, 0}} }, true},
+		{"guard with approval", func(r *Rule) { r.Guard, r.Outcome = true, Approval }, true},
+		{"no name", func(r *Rule) { r.Name = "  " }, false},
+		{"unknown action type", func(r *Rule) { r.ActionType = "explode" }, false},
+		{"unknown outcome", func(r *Rule) { r.Outcome = "maybe" }, false},
+		{"automatic guard", func(r *Rule) { r.Guard = true }, false},
+		{"unknown fact", func(r *Rule) { r.Conditions = []Condition{{"weather", LT, 0}} }, false},
+		{"unknown operator", func(r *Rule) { r.Conditions = []Condition{{MarginPct, "eq", 0}} }, false},
+		{"condition on a non-price rule", func(r *Rule) {
+			r.ActionType = NewProduct
+			r.Conditions = []Condition{{MarginPct, LT, 10}}
+		}, false},
+	}
+	for _, c := range cases {
+		r := ok
+		c.change(&r)
+		if err := r.Validate(); (err == nil) != c.valid {
+			t.Errorf("%s: Validate() = %v, want valid=%v", c.name, err, c.valid)
+		}
+	}
+}

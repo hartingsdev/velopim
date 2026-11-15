@@ -486,3 +486,41 @@ section.task {
 .inactive td {
   color: var(--muted);
 }
+
+.task.disabled h2,
+.task.disabled .item {
+  color: var(--muted);
+}
+
+.rule-form .fields .wide {
+  grid-column: 1 / -1;
+}
+
+.presets {
+  margin-top: 0.5rem;
+}
+
+button.chip {
+  background: none;
+  font-size: 0.875rem;
+}
+
+.conditions {
+  margin-top: 0.75rem;
+}
+
+.condition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.condition select {
+  flex: 1 1 10rem;
+}
+
+.condition input {
+  width: 7rem;
+  text-align: right;
+}
