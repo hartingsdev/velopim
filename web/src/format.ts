@@ -130,6 +130,7 @@ const categoryLabels: Record<string, string> = {
   removed: "Entfallene Artikel",
   content: "Texte, Bilder, Merkmale",
   import: "Import",
+  shopify: "Shopify",
   other: "Sonstiges",
 };
 

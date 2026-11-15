@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ApiError, decideTask, type Corrections, type Task, type TaskCategory, type TaskItem, type TaskList } from "./api";
-import { Chip, SearchBox, type Params } from "./route";
+import { Chip, href, SearchBox, type Params } from "./route";
 import {
   axisLabel,
   categoryLabel,
@@ -75,6 +75,19 @@ export function Tasks({ list, params, onChanged, onError }: Props) {
   );
 }
 
+/** Turns the web addresses in a text into links. */
+function linkify(text: string) {
+  return text.split(/(https?:\/\/[^\s]+)/).map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a key={i} href={part} target="_blank" rel="noreferrer noopener">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
 function axisValue(item: TaskItem, axis: string): string {
   if (axis === "color") return item.color.trim();
   if (axis === "frame_size") return item.frame_size.trim();
@@ -109,7 +122,7 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
   // price of a price-change task. Untouched fields are not in here.
   const [prices, setPrices] = useState<Record<string, string>>({});
   const open = task.status === "open";
-  const isApproval = task.action !== null;
+  const isApproval = task.action !== null || task.kind === "publish_product";
   const isModel = task.variants.length > 0;
 
   /** Collects what was changed in the form; null when a price is not a number. */
@@ -178,7 +191,12 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
         </span>
       </div>
       {itemFacts.length > 0 && <p className="item">{itemFacts.join(" · ")}</p>}
-      {task.detail && <p>{task.detail}</p>}
+      {task.detail && <p className="detail">{linkify(task.detail)}</p>}
+      {task.product_id !== null && (
+        <p className="item">
+          <a href={href("product", { id: String(task.product_id) })}>Produkt ansehen</a>
+        </p>
+      )}
       {isModel && (
         <Variants
           variants={task.variants}
@@ -245,7 +263,7 @@ function TaskCard({ task, onChanged, onError }: { task: Task } & Pick<Props, "on
 }
 
 function outcomeLabel(task: Task): string {
-  if (task.action) return task.status === "done" ? "Freigegeben" : "Abgelehnt";
+  if (task.action || task.kind === "publish_product") return task.status === "done" ? "Freigegeben" : "Abgelehnt";
   return task.status === "done" ? "Erledigt" : "Verworfen";
 }
 

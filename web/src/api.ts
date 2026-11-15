@@ -43,6 +43,8 @@ export interface Task {
   note: string | null;
   import_run_id: number | null;
   category: TaskCategory;
+  /** Set for tasks about a product of the own catalog. */
+  product_id: number | null;
   action: TaskAction | null;
   item: TaskItem | null;
   /** Supplier items of a new-model task; empty otherwise. */
@@ -51,7 +53,7 @@ export interface Task {
   locked_split_by: string[] | null;
 }
 
-export type TaskCategory = "price" | "new_model" | "availability" | "removed" | "content" | "import" | "other";
+export type TaskCategory = "price" | "new_model" | "availability" | "removed" | "content" | "import" | "shopify" | "other";
 
 export interface TaskList {
   tasks: Task[];
@@ -376,6 +378,8 @@ export interface SyncOp {
 export interface PlanProduct {
   product_id: number;
   name: string;
+  /** False for a product taken out of the store that is still in Shopify. */
+  wanted: boolean;
   in_shopify: boolean;
   last_synced_at: string | null;
   last_error: string | null;
@@ -409,4 +413,15 @@ export interface SyncPlan {
 
 export function getSyncPlan(): Promise<SyncPlan> {
   return request("/api/sync-plan");
+}
+
+export interface SyncResult {
+  synced: number;
+  unchanged: number;
+  failed: number;
+  products: { product_id: number; name: string; status: "synced" | "unchanged" | "failed"; error?: string; created?: boolean }[];
+}
+
+export function runSync(): Promise<SyncResult> {
+  return request("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
 }

@@ -168,7 +168,7 @@ export function App() {
           <ProductDetail key={key} detail={current.detail} onChanged={load} onError={setError} />
         )}
         {current?.view === "sources" && <Sources list={current.list} onChanged={load} onError={setError} />}
-        {current?.view === "sync" && <Sync plan={current.plan} />}
+        {current?.view === "sync" && <Sync plan={current.plan} onChanged={load} onError={setError} />}
         {current?.view === "search" && <Search results={current.results} />}
       </main>
     </>

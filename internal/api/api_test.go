@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"velopim/internal/dbtest"
+	"velopim/internal/shopify"
 )
 
 // seed creates one approval task with action and item, and one plain task.
@@ -669,5 +670,72 @@ func TestSyncPlanIsADryRun(t *testing.T) {
 	var synced int
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM shopify_listing WHERE synced_projection IS NOT NULL OR shopify_product_id IS NOT NULL`).Scan(&synced); err != nil || synced != 0 {
 		t.Errorf("dry run changed the listing (%d, %v)", synced, err)
+	}
+}
+
+// planStore is a Shopify stand-in for the sync endpoint.
+type planStore struct {
+	sent int
+	err  error
+}
+
+func (s *planStore) SetProduct(_ context.Context, p shopify.Product, id string) (shopify.SetResult, error) {
+	if s.err != nil {
+		return shopify.SetResult{}, s.err
+	}
+	s.sent++
+	return shopify.SetResult{ProductID: "gid://shopify/Product/7", NumericID: "7", VariantIDs: map[string]string{}}, nil
+}
+
+func (s *planStore) AdminURL(id string) string { return "https://admin.example/products/" + id }
+
+func TestSyncEndpoint(t *testing.T) {
+	pool := dbtest.New(t)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO product (brand, name) VALUES ('Beispielrad', 'City 3');
+		INSERT INTO variant (product_id, sku, price_cents) VALUES (1, '10001', 89900);
+		INSERT INTO shopify_listing (product_id, wanted) VALUES (1, true);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	const jsonType = "application/json"
+
+	// No store configured.
+	if rec := do(t, New(pool, "tester", nil), "POST", "/api/sync", jsonType, `{}`); rec.Code != http.StatusConflict {
+		t.Errorf("without store: %d, want 409", rec.Code)
+	}
+	// Writing switched off: 409, nothing recorded against the product.
+	off := &planStore{err: shopify.ErrWritesDisabled}
+	if rec := do(t, New(pool, "tester", off), "POST", "/api/sync", jsonType, `{}`); rec.Code != http.StatusConflict {
+		t.Errorf("writing off: %d, want 409", rec.Code)
+	}
+	// A cross-site form post cannot trigger a sync.
+	store := &planStore{}
+	h := New(pool, "tester", store)
+	if rec := do(t, h, "POST", "/api/sync", "application/x-www-form-urlencoded", ""); rec.Code != http.StatusUnsupportedMediaType || store.sent != 0 {
+		t.Errorf("form post: %d, sent %d", rec.Code, store.sent)
+	}
+
+	rec := do(t, h, "POST", "/api/sync", jsonType, `{}`)
+	if rec.Code != http.StatusOK || store.sent != 1 || !strings.Contains(rec.Body.String(), `"synced":1`) || !strings.Contains(rec.Body.String(), `"created":true`) {
+		t.Fatalf("sync: %d %s (sent %d)", rec.Code, rec.Body, store.sent)
+	}
+	// The new draft shows up as a publish task in the Shopify category.
+	list := getTasks(t, h, "open")
+	if len(list.Tasks) != 1 || list.Tasks[0].Category != "shopify" || list.Tasks[0].Kind != "publish_product" ||
+		list.Tasks[0].ProductID == nil || !strings.Contains(list.Tasks[0].Detail, "https://admin.example/products/7") {
+		t.Fatalf("tasks after sync: %+v", list.Tasks)
+	}
+	// Approving it makes the product active.
+	if rec := do(t, h, "POST", "/api/tasks/1/decision", jsonType, `{"approve":true}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("publish: %d %s", rec.Code, rec.Body)
+	}
+	var status string
+	if err := pool.QueryRow(context.Background(), `SELECT status FROM product WHERE id = 1`).Scan(&status); err != nil || status != "active" {
+		t.Errorf("product status = %s (%v)", status, err)
+	}
+	rec = do(t, h, "POST", "/api/sync", jsonType, `{}`)
+	if store.sent != 2 || !strings.Contains(rec.Body.String(), `"synced":1`) {
+		t.Errorf("publishing sync: sent %d, %s", store.sent, rec.Body)
 	}
 }

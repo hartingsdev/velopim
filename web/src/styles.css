@@ -585,3 +585,8 @@ main > .item {
 td .meta {
   white-space: normal;
 }
+
+.detail {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
