@@ -1,6 +1,6 @@
 # Übergabe velopim
 
-Stand: 22.11.2026, Zweig `mvp-foundation`, letzter Commit `1c2a286`. Arbeitsverzeichnis sauber, nichts gepusht, kein Pull Request.
+Stand: 22.11.2026, Zweig `mvp-foundation`, letzter Code-Commit `1c2a286`. Arbeitsverzeichnis sauber, nichts gepusht, kein Pull Request.
 
 Diese Datei ist eine Momentaufnahme. Gepflegt werden [CLAUDE.md](CLAUDE.md) (Regeln, Befehle) und [docs/](docs/README.md) (Architektur, Datenmodell, Stand, offene Punkte, Entscheidungen).
 
