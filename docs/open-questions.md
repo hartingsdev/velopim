@@ -1,7 +1,7 @@
 # Offene Punkte
 
 ## Vom Betreiber zu klären
-- **Hartje-Zugang und Datenformat:** unbekannt (CSV- oder BMEcat-Feed, veloconnect, API?). Keine Annahmen treffen. Bei einer CSV-Datei: im Reiter „Lieferanten“ einen Lieferanten anlegen, die Datei als Beispiel wählen und die Spalten zuordnen. Bei einem anderen Format braucht es einen neuen Konnektor.
+- **Hartje-Zugang und Datenformat:** Hartje verweist auf DST (Katalog) und veloconnect (Preise, Verfügbarkeit). Recherchiert, nichts gebaut. DST: REST/JSON unter `https://dst3-api.platformdst.nl/api/customer/…`, Token über Keycloak, Produktabruf mit Filter nach Lieferant und „geändert seit“; es fehlen Konto, Feldliste (JSON-Schema 3.1, API-Handbuch für Abnehmer), Angaben zu Blättern und Limits, Nutzungsrechte. veloconnect: Hartjes Server `https://api.hartje.veloconnect.io/`, Abfragen je bekannter Artikelnummer, kein Katalogabzug; es fehlen Zugangsdaten, Version und Vorgänge (`GetProfile`). Beide brauchen einen neuen Konnektor; wie ein API-Lieferant eingehängt wird, ist noch zu entscheiden. Weiterhin keine Annahmen über Felder treffen. Details und Quellen in [HANDOVER.md](../HANDOVER.md).
 - **Varianten bei Hartje:** flach oder Eltern-Kind? Sind Modellname, Farbe und Rahmenform sauber genug für die Gruppierung?
 - **Development-Store:** eingerichtet (`fahrrad-ass-dev`), Zugangsdaten stehen in der `.env`.
 - **Livegang:** Der Client schreibt nur in Development-Stores ([29](decisions/0029-shopify-sync.md)). Wann und wie soll der Live-Shop freigeschaltet werden, und wie werden die dort schon vorhandenen Produkte zugeordnet ([11](decisions/0011-staged-matching.md))?
